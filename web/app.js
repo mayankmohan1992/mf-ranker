@@ -161,6 +161,13 @@ function render() {
   $('thRet').textContent = currentWindowLabel();
   const asOf = basisAsOf();
   $('thRank').innerHTML = `Rank <span class="basis">· ${basisLabel()}</span>`;
+  const ABBR = { weekly: 'WK', monthly: 'MTH', quarterly: 'QTR', halfyearly: 'HY', annual: 'YR' };
+  const prevAsOf = (S.meta.basis_prev_asof || {})[S.basis];
+  $('thDelta').innerHTML = `Δ <span class="basis">${ABBR[S.basis] || ''}</span>`;
+  $('thDelta').title = prevAsOf && asOf
+    ? `Change in ${currentWindowLabel()} rank vs the previous ${basisLabel().toLowerCase()} `
+      + `(${prevAsOf} -> ${asOf}). ▲ = moved up, ▼ = moved down.`
+    : `Change in ${currentWindowLabel()} rank`;
   $('thRank').title = asOf
     ? `${currentWindowLabel()} rank within category, ${basisLabel().toLowerCase()} as of ${asOf}`
     : `${currentWindowLabel()} rank within category`;
@@ -199,7 +206,11 @@ function render() {
       <td class="name"><b>${s.n}</b>${s.g ? `<span class="tag">${s.g}</span>` : ''}</td>
       <td class="muted">${s.a || '—'}</td>
       <td class="num ${cls(s.r[S.win])}">${fmtPct(s.r[S.win])}</td>
-      <td class="num"><span class="rankpill">${rk ?? '—'}${rk !== null && totalOf(s) ? ' / ' + totalOf(s) : ''}</span></td>
+      <td class="num" title="${rk !== null && totalOf(s)
+        ? `ranked ${rk} of ${totalOf(s)} ${S.plan} schemes that had a ${currentWindowLabel()} record on ${asOf}`
+          + ` (${planTotal} in the category)`
+        : `no ${currentWindowLabel()} record on ${asOf}`}"
+        ><span class="rankpill">${rk ?? '—'}${rk !== null && totalOf(s) ? ' / ' + totalOf(s) : ''}</span></td>
       <td class="num">${delta}</td>`;
     tr.onclick = () => { S.sel = s.c; render(); openDetail(s); };
     tb.appendChild(tr);

@@ -35,6 +35,40 @@ MONTHS = {
 }
 
 SECTION_RE = re.compile(r"^(Open|Close)\s*Ended\s*Schemes", re.I)
+
+# Indian ISIN: "IN" + 10 alphanumerics. Used to tell the two 8-column layouts apart.
+# A plain startswith("IN") test is wrong: scheme names do it too - "Invesco India
+# Large Cap Fund" was read as an ISIN and every Invesco row in the history files
+# was dropped as unparseable.
+ISIN_RE = re.compile(r"^IN[A-Z0-9]{10}$")
+PLAN_WORDS = ("direct", "regular")
+OPTION_WORDS = ("growth", "idcw", "dividend", "bonus", "payout", "reinvest")
+
+
+def _is_isin(text: str) -> bool:
+    return bool(ISIN_RE.match((text or "").strip().upper()))
+
+
+def _looks_plan(text: str) -> bool:
+    return (text or "").strip().lower().startswith(PLAN_WORDS)
+
+
+def _looks_option(text: str) -> bool:
+    low = (text or "").lower()
+    return any(w in low for w in OPTION_WORDS)
+
+
+def _layout8(parts):
+    """Decide between the two 8-column layouts by scoring both readings.
+
+      NAVAll : code;isin1;isin2;name;plan;option;nav;date
+      history: code;name;plan;option;isin1;isin2;nav;date
+    """
+    navall = (_looks_plan(parts[4]) + _looks_option(parts[5])
+              + _is_isin(parts[1]) + _is_isin(parts[2]))
+    hist = (_looks_plan(parts[2]) + _looks_option(parts[3])
+            + _is_isin(parts[4]) + _is_isin(parts[5]))
+    return "navall" if navall > hist else "history"
 DATE_RE = re.compile(r"^(\d{1,2})-([A-Za-z]{3})-(\d{4})$")
 
 
@@ -138,12 +172,17 @@ def parse(text: str):
         if not code.isdigit():
             continue
 
-        if parts[1].upper().startswith("IN"):
-            name = parts[3] if len(parts) > 3 else ""
-            middle = parts[4:-2]
+        if len(parts) >= 8:
+            if _layout8(parts) == "navall":
+                name, middle = parts[3], parts[4:-2]
+            else:
+                name, middle = parts[1], parts[2:-2]
         else:
-            name = parts[1]
-            middle = parts[2:-2]
+            # legacy 6-column files: name sits at [1] unless [1] is an ISIN
+            if len(parts) > 3 and _is_isin(parts[1]):
+                name, middle = parts[3], parts[4:-2]
+            else:
+                name, middle = parts[1], parts[2:-2]
 
         plan = ""
         option = ""

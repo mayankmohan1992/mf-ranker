@@ -326,6 +326,8 @@ def build(store, dist_dir: str) -> dict:
         "rank_dates": dates[rank_offset:],
         "bases": [{"key": b, "label": lbl} for b, lbl in BASES],
         "basis_asof": {b: dates[rank_offset + basis_idx[b]] for b, _ in BASES},
+        "basis_prev_asof": {b: (dates[rank_offset + basis_prev[b]] if basis_prev[b] >= 0 else None)
+                            for b, _ in BASES},
         "categories": cat_index,
     }
     with open(os.path.join(data_dir, "meta.json"), "w") as fh:

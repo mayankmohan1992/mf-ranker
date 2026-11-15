@@ -86,11 +86,31 @@ python3 -m http.server -d dist 8000                       # open http://localhos
 `backfill` caches each month's raw AMFI file under `pipeline/cache/raw/`, so
 re-parsing costs nothing but network-free seconds.
 
+## Verified numbers (this repo, at build time)
+
+| | |
+|---|---|
+| NAV rows ingested | 7.39 M (10 years, all Growth Direct+Regular schemes) |
+| Schemes discovered | 7,557 · published (NAV within 45 days) 3,637 |
+| Categories | 42 canonical, from 103 distinct AMFI section labels |
+| Backfill | 121 monthly AMFI requests, ~10 min at 7 workers |
+| Daily incremental job | **~70 s** end to end (restore → ingest → build → deploy) |
+| State snapshot | 8.7 MB packed (from a 188 MB store) |
+| Site payload | category JSON 29–340 KB; one scheme's series ~8 KB |
+
+**Compaction is proven lossless, not assumed:** building the whole site from the
+8.7 MB state and from the 188 MB full daily store produces byte-identical output
+for all 42 category files, 0 rank differences and 0 return differences.
+
 ## Known limits
 
 * NAV history is what AMFI publishes; a scheme merged or renamed keeps the NAV
   series of its old code, so pure-rename continuations can appear as two schemes.
 * Rank history is weekly for the last ~3 years, NAV series weekly for ~10 years.
+* A scheme is only counted in a ranking while its NAV is at most 30 days old at
+  that point. Schemes that stopped publishing (merged, closed, renamed) do not
+  linger as flat 0% lines - they drop out of the peer set on the date they stop
+  reporting, which is what keeps historical group sizes honest.
 * Returns are not adjusted for exit load, taxes, or IDCW payouts (by design —
   growth option only).
 * AMFI's categorisation is authoritative here; where AMFI keeps a legacy section

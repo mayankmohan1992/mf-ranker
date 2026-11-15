@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MF Ranker — AMFI NAV rankings</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="mark">MF</span>
+    <div>
+      <h1>MF Ranker</h1>
+      <p class="sub">Rankings computed from AMFI published NAV · no broker data, no paid feed</p>
+    </div>
+  </div>
+  <div class="meta">
+    <div><span class="k">NAV as of</span> <strong id="asOf">—</strong></div>
+    <div><span class="k">Schemes</span> <strong id="schemeCount">—</strong></div>
+    <div><span class="k">Updated</span> <strong id="builtAt">—</strong></div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="searchbox">
+      <input id="search" type="search" placeholder="Search fund in category…" autocomplete="off">
+    </div>
+    <nav id="catNav" class="catnav"></nav>
+    <footer class="sidebar-foot">
+      <p>Source: <a href="https://www.amfiindia.com/" target="_blank" rel="noopener">AMFI</a> NAVAll.txt + historical NAV report. Categories follow the AMFI / SEBI section headers.</p>
+    </footer>
+  </aside>
+
+  <main class="main">
+    <div class="controls">
+      <div class="ctl">
+        <label>Plan</label>
+        <div class="seg" id="planSeg">
+          <button data-plan="Direct" class="on">Direct</button>
+          <button data-plan="Regular">Regular</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <label for="win">Return window</label>
+        <select id="win"></select>
+      </div>
+      <div class="ctl">
+        <label for="basis">Ranking basis</label>
+        <select id="basis">
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+          <option value="halfyearly">Half-yearly</option>
+          <option value="annual">Annual</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label for="dir">Show</label>
+        <select id="dir">
+          <option value="top">Top performers</option>
+          <option value="bottom">Bottom performers</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label for="n">Schemes</label>
+        <input id="n" type="number" min="1" max="500" value="20">
+      </div>
+      <div class="ctl grow">
+        <label>&nbsp;</label>
+        <div class="hint" id="ctxHint">—</div>
+      </div>
+    </div>
+
+    <section class="card">
+      <div class="card-head">
+        <h2 id="catTitle">—</h2>
+        <div class="legend" id="catMeta"></div>
+      </div>
+      <div class="table-wrap">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th class="num">#</th>
+              <th class="sortable" data-sort="name">Scheme</th>
+              <th class="sortable" data-sort="amc">Fund house</th>
+              <th class="num sortable" data-sort="ret" id="thRet">Return</th>
+              <th class="num sortable" data-sort="rank">Rank</th>
+              <th class="num">Δ 1W</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="empty" hidden>No schemes match.</div>
+    </section>
+
+    <section class="card detail" id="detail" hidden>
+      <div class="card-head">
+        <div>
+          <h2 id="dName">—</h2>
+          <div class="legend" id="dMeta"></div>
+        </div>
+        <div class="seg" id="spanSeg">
+          <button data-span="1Y" class="on">1Y</button>
+          <button data-span="3Y">3Y</button>
+          <button data-span="max">Max</button>
+        </div>
+      </div>
+
+      <div class="stats" id="dStats"></div>
+
+      <div class="charts">
+        <figure>
+          <figcaption>NAV history <span id="navSpanLabel" class="muted"></span></figcaption>
+          <canvas id="navChart" height="220"></canvas>
+        </figure>
+        <figure>
+          <figcaption>Rank within category <span id="rankSpanLabel" class="muted"></span>
+            <em id="rankAxisNote" class="muted"></em></figcaption>
+          <canvas id="rankChart" height="220"></canvas>
+        </figure>
+      </div>
+      <p class="disclaimer">Past NAV performance, recomputed from AMFI's own files. Rank 1 = best in the
+        ranking group for that window. Windows under a year are absolute returns, a year and longer are CAGR.</p>
+    </section>
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+pipeline/cache/
+dist/
+logs/
+__pycache__/
+*.pyc
+.DS_Store

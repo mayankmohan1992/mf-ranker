@@ -1,0 +1,89 @@
+name: daily-nav-update
+
+# AMFI publishes NAVs in the evening IST (~21:00-23:00). We run at 23:30 IST,
+# with a second attempt at 02:00 IST in case AMFI is late.
+on:
+  schedule:
+    - cron: "0 18 * * *"   # 23:30 IST
+    - cron: "30 20 * * *"  # 02:00 IST (retry)
+  workflow_dispatch:
+    inputs:
+      full_rebuild:
+        description: "Ignore saved state and re-download 10 years of NAV history"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # to force-push the `state` branch
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-nav-update
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore NAV store from state branch
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.full_rebuild) }}
+        run: |
+          mkdir -p pipeline/cache
+          if git ls-remote --exit-code --heads origin state >/dev/null 2>&1; then
+            git fetch --depth=1 origin state
+            git show FETCH_HEAD:state.sqlite.gz > pipeline/cache/state.sqlite.gz
+            python -m pipeline.cli state-unpack
+          else
+            echo "no state branch yet — the update step will backfill from scratch"
+          fi
+
+      - name: Update NAV store
+        run: |
+          set -euo pipefail
+          if [ -f pipeline/cache/nav.sqlite ]; then
+            echo "state restored — incremental update"
+            python -m pipeline.cli daily
+          else
+            echo "no state — downloading 10 years of AMFI history"
+            python -m pipeline.cli backfill --years 10 --workers 8
+            python -m pipeline.cli daily
+          fi
+
+      - name: Build static site
+        run: python -m pipeline.cli build
+
+      - name: Persist NAV store to state branch
+        run: |
+          set -euo pipefail
+          python -m pipeline.cli state-pack
+          work=$(mktemp -d)
+          cp pipeline/cache/state.sqlite.gz "$work/"
+          cd "$work"
+          git init -q -b state
+          git -c user.name="mf-ranker" -c user.email="actions@users.noreply.github.com" \
+              add state.sqlite.gz
+          git -c user.name="mf-ranker" -c user.email="actions@users.noreply.github.com" \
+              commit -qm "state $(date -u +%FT%TZ)"
+          # force-push a single-commit branch: the repo never accumulates daily snapshots
+          git push -q --force \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" state
+
+      - name: Upload site stats
+        run: |
+          du -sh dist
+          echo "schemes: $(python -c "import json;print(len(json.load(open('dist/data/lookup.json'))))")"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

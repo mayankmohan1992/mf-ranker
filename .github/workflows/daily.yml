@@ -1,11 +1,20 @@
 name: daily-nav-update
 
-# AMFI publishes NAVs in the evening IST (~21:00-23:00). We run at 23:30 IST,
-# with a second attempt at 02:00 IST in case AMFI is late.
+# When does AMFI publish?
+#   Measured: NAVAll.txt carried Last-Modified 21:15 IST and already contained
+#   that day's NAVs by 22:18 IST (checked against the file's own ETag/content).
+#   SEBI requires AMCs to declare NAV by 21:00 IST, so the file is rewritten
+#   through the evening and can settle as late as ~23:00-23:30 IST on a busy day.
+#   => run at least an hour after that window closes.
+#
+#   00:30 IST primary  = 3h15m after the observed 21:15 refresh, >=1h after a
+#                        23:30 worst case.
+#   04:00 IST retry    = catches a late file (debt schemes) or a failed run;
+#                        the pipeline is idempotent, so a second run is harmless.
 on:
   schedule:
-    - cron: "0 18 * * *"   # 23:30 IST
-    - cron: "30 20 * * *"  # 02:00 IST (retry)
+    - cron: "0 19 * * *"    # 00:30 IST  (primary)
+    - cron: "30 22 * * *"   # 04:00 IST  (retry)
   workflow_dispatch:
     inputs:
       full_rebuild:
@@ -59,6 +68,22 @@ jobs:
 
       - name: Build static site
         run: python -m pipeline.cli build
+
+      # Proves the schedule empirically: compare when AMFI last wrote the file with
+      # what the build actually picked up. If as_of lags the Last-Modified date for
+      # several days, the cron is running too early and needs to move later.
+      - name: Record publication timing
+        if: always()
+        run: |
+          set +e
+          LM=$(curl -sI --max-time 20 -A "Mozilla/5.0" \
+                 https://portal.amfiindia.com/spages/NAVAll.txt \
+               | grep -i '^last-modified' | tr -d '\r')
+          echo "run started   : $(date -u '+%Y-%m-%d %H:%M UTC') / $(TZ=Asia/Kolkata date '+%H:%M IST')"
+          echo "AMFI file     : ${LM:-unavailable}"
+          if [ -f dist/data/meta.json ]; then
+            python -c "import json;m=json.load(open('dist/data/meta.json'));print('build as_of   :', m['as_of'], '| generated', m['generated_at'])"
+          fi
 
       - name: Persist NAV store to state branch
         run: |

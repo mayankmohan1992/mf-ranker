@@ -1,146 +1,251 @@
 # MF Ranker
 
-Mutual fund rankings for India, computed only from **AMFI**'s own published NAV
-files. No broker data, no paid feed, no scraping of third-party sites.
+**Mutual-fund analytics for India, computed exclusively from AMFI's own published NAV files.**
 
-**Live:** https://<owner>.github.io/mf-ranker/ *(set once Pages is enabled)*
+No broker feed, no aggregator, no scraping of third-party sites, no paid data. Every figure on
+the site traces back to a file AMFI published, and every transformation is in this repository.
+
+▸ **Live:** https://mayankmohan1992.github.io/mf-ranker/
+▸ **Scope:** 3,626 published schemes · 42 SEBI categories · 7.6 M NAV rows since October 2016
+▸ **Refresh:** automated daily — see [Schedule](#-schedule-and-why-it-runs-then)
 
 ---
 
-## What it does
+## ◆ What this is
 
-* Downloads every scheme's NAV from AMFI — a 10-year backfill plus a daily update.
-* Classifies each scheme with the **AMFI/SEBI category carried in AMFI's own file
-  structure** (`Open Ended Schemes(Equity Schemes - Large Cap Fund)`), not by
-  guessing from fund names.
-* Computes trailing returns for **1W · 1M · 3M · 6M · 1Y · 3Y · 5Y · 10Y**
-  (absolute below a year, CAGR from a year up) on a weekly Friday grid.
-* Ranks every scheme inside its **(category, plan)** group at every week, and
-  keeps the full rank history so the dashboard can show **weekly / monthly /
-  quarterly / half-yearly / annual** views from one consistent series.
-* Serves a static dashboard: top/bottom *N* per category (default 20), and a
-  per-scheme view with NAV history plus rank-within-category over time.
+A static data product answering three questions from official data alone:
 
-## Data source
+```
+▸  Which funds are actually good, judged inside their own SEBI category?
+▸  What would a monthly SIP have returned, in honest money-weighted terms?
+▸  How do up to 20 funds compare over a common window, on risk as well as return?
+```
 
-| What | Endpoint |
-|---|---|
-| Latest NAV, all schemes | `https://portal.amfiindia.com/spages/NAVAll.txt` |
-| Historical NAV, all schemes | `https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx?frmdt=&todt=` |
+It is a ranking and analytics instrument: every number carries its as-of date, its denominator
+and its assumptions. It is **not** investment advice, not a rating agency, and not a screener
+built on someone else's derived numbers.
 
-Both are AMFI's official files. The historical endpoint returns *all* schemes for
-a date range (~24 MB per month), so the backfill is chunked by month and cached.
+---
+
+## ◆ Data sources — official only
+
+| Source | Provides | Cadence |
+|---|---|---|
+| `portal.amfiindia.com/spages/NAVAll.txt` | every scheme's latest NAV, plan, option, ISIN (~1.5 MB) | daily |
+| `portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx` | full NAV history, requested in month chunks (~24 MB each) | backfill |
+| SEBI category taxonomy | the section headers AMFI embeds in its own files | static |
+
+Nothing else is consulted. If a figure cannot be derived from these files, it is not shown.
+
+---
+
+## ◆ Architecture
+
+```
+    AMFI files
+        │
+        ▼
+ ┌────────────┐     ┌────────────┐     ┌──────────────┐     ┌───────────────┐
+ │   ingest   │────▸│   SQLite   │────▸│    derive    │────▸│  static JSON  │
+ │ amfi.py    │     │   store    │     │ compute.py   │     │  + vanilla JS │
+ │            │     │ store.py   │     │ sip.py       │     │  (no library) │
+ └────────────┘     └────────────┘     │ names.py     │     └───────────────┘
+                           │            └──────────────┘             │
+                           ▼                                         ▼
+                    orphan `state`                          GitHub Pages
+                    branch (single                          artifact deploy,
+                    commit, force-                          never a data
+                    pushed)                                 branch
+```
+
+▸ **Store** — one row per scheme per day, `PRIMARY KEY (code, day) WITHOUT ROWID`, dates as
+integer days since epoch.
+▸ **Derive** — Python writes every byte the browser reads; the front end never recomputes a
+return from a separately fetched series, and never needs a server.
+▸ **Publish** — a Pages *artifact*. A nightly job that committed data would grow the repository
+without bound; the repo stays code-only.
+▸ **State** — an orphan branch, force-pushed as one commit per run: durable across runs, no
+history to bloat, and immune to Actions-cache eviction.
+
+---
+
+## ◆ What the site does
+
+**Rankings** — trailing returns for `1W · 1M · 3M · 6M · 1Y · 3Y · 5Y · 10Y` (absolute below a
+year, CAGR from a year up, actual elapsed days), ranked inside `(category, plan, benchmark
+group)`. User-settable top-N and a bottom-N view.
+
+**Ranking basis** — weekly · monthly · quarterly · half-yearly · annual. Each resolves to the
+last *completed* bucket, so the five views are genuinely different numbers rather than one
+number relabelled, and the header states the as-of date in use.
+
+**SIP simulator** — XIRR for 4 tenures × 5 SIP days with category peer medians, instalment
+count, invested-versus-value, and an explicit note when a fund's history begins inside the
+window. The amount is free-form because XIRR is money-weighted.
+
+**Comparison** — up to 20 schemes: growth of ₹10,000 over the *common* window, summary across
+all windows, calendar-year grid, and weekly return correlation — labelled as correlation, never
+as holdings overlap. CSV export and shareable URLs that restore the exact view.
+
+**Detail view** — NAV history, rank history at the selected basis, and the SIP grid.
 
 ### Scope decisions
 
-* **Growth option only.** IDCW NAVs drop on every payout, so a NAV-based return
-  for them is wrong and their ranking would be meaningless.
-* **Direct + Regular plans**, ranked separately — different expense loads, so
-  mixing them in one rank list would flatter regular plans' peers.
-* **Index funds and ETFs** are ranked inside their benchmark group
-  (Nifty 50 vs Nifty 50, gold ETF vs gold ETF), and **Sectoral/Thematic** funds
-  inside their theme. Ranking a pharma fund against a defence fund is arithmetic,
-  not information.
-* Only schemes with **≥ 2 peers** get a rank; a genuinely unique mandate shows
-  `—` instead of a fake number.
+▸ **Growth options only.** IDCW NAVs drop on every payout, so a NAV-based return is wrong for
+them and their ranking would be meaningless.
+▸ **Direct and Regular ranked separately** — different expense loads; mixing them would flatter
+regular plans' peers.
+▸ **Index funds and ETFs ranked inside their benchmark group**, sectoral/thematic funds inside
+their theme. A pharma fund against a defence fund is arithmetic, not information.
+▸ Only schemes with **≥ 2 peers** receive a rank; a unique mandate shows `—` rather than a
+fake number.
 
-## Architecture
+---
 
-```
-pipeline/amfi.py        download + parse AMFI text files (robust to old/new column layouts)
-pipeline/categories.py  AMFI section label -> canonical SEBI category, benchmark/theme groups
-pipeline/store.py       SQLite NAV store (one row per scheme per date)
-pipeline/compute.py     weekly grid -> returns -> ranks -> static JSON
-pipeline/cli.py         backfill | daily | build | state-pack | state-unpack | all
-web/                    hand-written vanilla HTML/CSS/JS dashboard (no libraries)
-```
+## ◆ Correctness guarantees
 
-### How the daily automation works (no manual intervention)
+Each is enforced in code and covered by a test. The failure mode of financial data is not a
+crash — it is a plausible-looking wrong number.
 
-```
-cron (23:30 IST)  ->  restore NAV store from `state` branch
-                  ->  append today's NAVAll.txt
-                  ->  recompute returns + ranks
-                  ->  force-push a single-commit `state` branch
-                  ->  deploy dist/ to GitHub Pages as a workflow artifact
-```
+| Invariant | What it prevents |
+|---|---|
+| **File layout detected by ISIN shape, never by prefix** | `field.startswith("IN")` matched the fund name *"Invesco…"* and silently dropped all 247 Invesco codes from ten years of history |
+| **No scheme sampled past a 45-day staleness cutoff** | dead or merged schemes otherwise rank as flat 0% lines and inflate every peer's denominator |
+| **Rank denominators published per observation, not as one scalar** | `3/38` was true only for the latest week; every earlier date lied |
+| **Compaction keeps exactly the rows the sampler selects** | coarser rules drop the Thursday before a market-holiday Friday and shift every historical return |
+| **Integer-day weekday math verified against a known date** | 1970-01-01 was a Thursday, so Friday is `day % 7 == 1`, not `4` |
+| **ISIN is the identity** | two codes sharing an ISIN within one plan are the same fund; one ISIN may never span two plans |
+| **Non-retail schemes excluded** | AMFI's "Unclaimed Redemption Plan", "Brokerage I.E.F." and one ULIP carry no ISIN and incomparable NAVs |
+| **Display names are derived, never destructive** | the official AMFI name stays in `n`; search, tooltips and CSV keep it |
+| **NAV is already net of expenses** | TER is reported as a separate fact, never subtracted from a NAV return |
 
-* **Nothing is committed to `main` daily.** Pages is deployed from an artifact,
-  so the repository does not grow by data files every night.
-* **The NAV store lives on an orphan `state` branch** that is force-pushed as a
-  single commit each run — durable across runs, but with no history to bloat the
-  repo (an Actions cache would be evicted after 7 idle days).
-* **Self-healing:** if the `state` branch is missing or the DB is empty, the same
-  workflow runs the full 10-year backfill before building. Nothing to do by hand.
-* A second run at 02:00 IST covers the days AMFI publishes late.
+**Release gates:** compact-vs-full build diff, row counts asserted against the source, a
+headless-browser audit comparing *every* rendered row to the published JSON (not a spot check),
+and every control exercised to confirm it changes what it claims to.
 
-## Local use
+---
 
-```bash
-python3 -m pipeline.cli backfill --years 10 --workers 6   # one-time, ~10 min
-python3 -m pipeline.cli daily                             # today's NAV
-python3 -m pipeline.cli build                             # -> dist/
-python3 -m http.server -d dist 8000                       # open http://localhost:8000
-```
-
-`backfill` caches each month's raw AMFI file under `pipeline/cache/raw/`, so
-re-parsing costs nothing but network-free seconds.
-
-## Verified numbers (this repo, at build time)
+## ◆ Verified numbers (this repository, at build time)
 
 | | |
 |---|---|
-| NAV rows ingested | 7.39 M (10 years, all Growth Direct+Regular schemes) |
-| Schemes discovered | 7,557 · published (NAV within 45 days) 3,637 |
-| Categories | 42 canonical, from 103 distinct AMFI section labels |
-| Backfill | 121 monthly AMFI requests, ~10 min at 7 workers |
-| Daily incremental job | **~70 s** end to end (restore → ingest → build → deploy) |
-| State snapshot | 8.7 MB packed (from a 188 MB store) |
-| Site payload | category JSON 29–340 KB; one scheme's series ~8 KB |
+| NAV rows ingested | 7.61 M (10 years, Growth Direct + Regular) |
+| Schemes discovered | 7,766 · published (NAV within 45 days) **3,626** |
+| Categories | 42 canonical, mapped from 103 distinct AMFI section labels |
+| Backfill | 121 monthly AMFI requests, ~4 min single-worker from cache |
+| Daily incremental job | ~70 s end to end (restore → ingest → build → deploy) |
+| State snapshot | 9.0 MB packed from a ~188 MB store |
+| Site payload | category JSON 54–637 KB; one scheme's series ~6 KB |
 
-**Compaction is proven lossless, not assumed:** building the whole site from the
-8.7 MB state and from the 188 MB full daily store produces byte-identical output
-for all 42 category files, 0 rank differences and 0 return differences.
+**Compaction is proven lossless, not assumed:** building from the packed state and from the full
+daily store produces byte-identical output across all 42 category files — 0 rank differences,
+0 return differences.
 
-## Known limits
+---
 
-* NAV history is what AMFI publishes; a scheme merged or renamed keeps the NAV
-  series of its old code, so pure-rename continuations can appear as two schemes.
-* Rank history is weekly for the last ~3 years, NAV series weekly for ~10 years.
-* A scheme is only counted in a ranking while its NAV is at most 30 days old at
-  that point. Schemes that stopped publishing (merged, closed, renamed) do not
-  linger as flat 0% lines - they drop out of the peer set on the date they stop
-  reporting, which is what keeps historical group sizes honest.
-* Returns are not adjusted for exit load, taxes, or IDCW payouts (by design —
-  growth option only).
-* AMFI's categorisation is authoritative here; where AMFI keeps a legacy section
-  header (`Income`), those schemes are grouped as *Other / Unclassified* rather
-  than guessed into a category.
+## ◆ Repository layout
 
-## SIP simulator and comparison (Sprint 1)
+```
+pipeline/
+  amfi.py        parser for both AMFI layouts; layout chosen by scoring, not guessing
+  store.py       SQLite store, compaction, state pack/unpack
+  compute.py     returns, ranks, per-basis as-of values, SIP medians, publish step
+  sip.py         SIP grid + XIRR (Newton with a bisection fallback)
+  names.py       "Fund - Direct Plan - Growth Option"  →  "Fund D-G"
+  categories.py  AMFI section label → SEBI category, benchmark/theme grouping
+  cli.py         backfill · daily · build · state-pack · state-unpack
+web/
+  index.html     single page — no framework, no CDN, no build step
+  style.css      measured sticky header (--bar-h), dense tabular layout
+  app.js         ranking table, detail modal, hand-rolled canvas charts
+  sip.js         SIP grid rendering
+  compare.js     20-scheme comparison view
+tests/
+  test_parser.py file-layout fixtures, including the Invesco regression
+  test_sip.py    SIP engine vs an independent brute-force implementation
+  test_names.py  display-name fixtures + store-wide audit
+  test_isin.py   check digits, no shared ISIN, one ISIN never spans two plans
+docs/
+  ROADMAP.md     feature plan with measured payload costs
+.github/workflows/daily.yml
+```
 
-- **SIP grid** — XIRR for 4 tenures (1/3/5/10Y) x 5 SIP days, precomputed at build time
-  from the daily NAV series (`pipeline/sip.py`). XIRR is money-weighted, so the amount the
-  user types only scales the rupee figures, never the rate.
-- Instalments buy at the **first NAV published on or after** the chosen day; months with no
-  NAV are skipped, never back-dated. A single instalment or a window under 60 days yields
-  no annualised rate (n/a) rather than an absurd number, and the grid records how many days
-  late the first instalment landed so a "10Y SIP" on a 2-year-old fund is labelled honestly.
-- **Peer medians** per category/plan are precomputed into the category file, so a fund is
-  ranked against its category's SIP performance without fetching every peer.
-- **Compare up to 20 schemes**: growth of Rs 10,000 over the common window, summary across
-  all 8 windows, calendar-year grid, weekly return correlation (explicitly *not* holdings
-  overlap), CSV export and a shareable URL that restores the exact view.
+---
 
-Tests: `python3 tests/test_parser.py` and `python3 tests/test_sip.py`.
+## ◆ Running it locally
 
-## Short display names
+```bash
+python3 -m pipeline.cli backfill --years 10 --workers 8   # first run, ~10 min
+python3 -m pipeline.cli daily                             # one day's update
+python3 -m pipeline.cli build                             # writes dist/
+python3 -m http.server -d dist 8000                       # http://localhost:8000
+```
 
-AMFI's official scheme names carry the plan and option in the tail
-("Fund - Direct Plan - Growth Option"). The table shows a contracted form
-("Fund D-G" / "Fund R-G") derived by `pipeline/names.py`; the **official name is
-never modified** - it stays in `n` and appears in the tooltip, and search matches
-both. Markers are stripped only from the tail, at most once for growth, so funds
-whose own name contains the word (Principal Multi Cap **Growth** Fund, Kotak India
-**Growth** Fund Series 4) keep it. Verified by `tests/test_names.py`, which audits
-every scheme in the store and asserts zero leftover markers and zero collisions.
+Python 3.12, standard library only — there is no `pip install` step, by design. The backfill
+caches each month's raw AMFI file under `pipeline/cache/raw/`, so re-parsing is offline and free.
+
+```bash
+python3 tests/test_parser.py     # file layouts
+python3 tests/test_sip.py        # XIRR engine
+python3 tests/test_names.py      # display names
+python3 tests/test_isin.py       # identity + plan/category consistency
+```
+
+---
+
+## ◆ Schedule, and why it runs then
+
+AMFI's evening refresh was **measured, not assumed**:
+
+```
+NAVAll.txt  Last-Modified  : 21:15 IST
+that day's NAVs present    : yes, by 22:18 IST   (712 rows)
+SEBI deadline for AMCs     : 21:00 IST
+```
+
+The file is rewritten through the evening as NAVs arrive and can settle as late as ~23:00–23:30
+IST, so the job runs **at least an hour after that window closes**:
+
+| Run | IST | Purpose |
+|---|---|---|
+| `0 19 * * *` | **00:30** | primary — 3 h 15 m after the observed refresh, ≥ 1 h after a 23:30 worst case |
+| `30 22 * * *` | **04:00** | retry — late file or failed run; the pipeline is idempotent |
+
+Every run logs `run started`, `AMFI file Last-Modified` and `build as_of`, so the schedule
+proves itself: if `as_of` lags the file date for several days, the cron is running too early.
+
+**Self-healing:** if the `state` branch is missing or the database is empty, the same run
+performs the full 10-year backfill before building. There is nothing to do by hand.
+
+---
+
+## ◆ Known limitations
+
+▸ **Growth options only** — IDCW NAVs drop on payout and would rank as false losses.
+▸ **No exit load, stamp duty or tax** in any simulation; NAV returns are already post-expense.
+▸ **SIP uses a precomputed grid** (4 tenures × 5 days). Arbitrary dates would require shipping
+daily series, measured at 89 MB project-wide and rejected in favour of speed.
+▸ **Holdings-level overlap is unavailable** from official sources; return correlation is
+labelled as the proxy it is.
+▸ **Scheme-level AUM, fund managers, exit loads and star ratings** are not published by AMFI or
+SEBI, so they are absent rather than approximated.
+▸ A handful of legacy AMFI codes carry **no ISIN** (FMP series, brand-new funds) and are
+therefore unverifiable; they are reported, never silently trusted.
+▸ Where AMFI keeps a legacy section header (`Income`), schemes are grouped as
+*Other / Unclassified* rather than guessed into a category.
+
+---
+
+## ◆ Roadmap
+
+Rolling returns and risk metrics, expense ratios from AMFI's own TER endpoint, benchmark and
+alpha work on officially sourced index levels, and rank persistence. Effort, ordering and the
+measured payload cost behind each: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+---
+
+## ◆ Attribution
+
+NAV, plan, option and ISIN data are published by the Association of Mutual Funds in India.
+Category structure follows SEBI's mutual-fund classification. This project is an independent
+analytics layer over those public files and is not affiliated with AMFI or SEBI.

@@ -116,3 +116,20 @@ for all 42 category files, 0 rank differences and 0 return differences.
 * AMFI's categorisation is authoritative here; where AMFI keeps a legacy section
   header (`Income`), those schemes are grouped as *Other / Unclassified* rather
   than guessed into a category.
+
+## SIP simulator and comparison (Sprint 1)
+
+- **SIP grid** — XIRR for 4 tenures (1/3/5/10Y) x 5 SIP days, precomputed at build time
+  from the daily NAV series (`pipeline/sip.py`). XIRR is money-weighted, so the amount the
+  user types only scales the rupee figures, never the rate.
+- Instalments buy at the **first NAV published on or after** the chosen day; months with no
+  NAV are skipped, never back-dated. A single instalment or a window under 60 days yields
+  no annualised rate (n/a) rather than an absurd number, and the grid records how many days
+  late the first instalment landed so a "10Y SIP" on a 2-year-old fund is labelled honestly.
+- **Peer medians** per category/plan are precomputed into the category file, so a fund is
+  ranked against its category's SIP performance without fetching every peer.
+- **Compare up to 20 schemes**: growth of Rs 10,000 over the common window, summary across
+  all 8 windows, calendar-year grid, weekly return correlation (explicitly *not* holdings
+  overlap), CSV export and a shareable URL that restores the exact view.
+
+Tests: `python3 tests/test_parser.py` and `python3 tests/test_sip.py`.

@@ -5,8 +5,10 @@ const S = {
   meta: null, cats: [], slug: null, cat: null,
   plan: 'Direct', win: '1Y', basis: 'weekly', dir: 'top', n: 20,
   sort: 'ret', sortDesc: true, span: '1Y', sel: null, search: '',
-  series: {},
+  series: {}, cmp: [], cmpOpen: false,
 };
+
+let VISIBLE = [];
 
 const $ = (id) => document.getElementById(id);
 const fmtPct = (v) => (v === null || v === undefined) ? '—' : (v > 0 ? '+' : '') + v.toFixed(2) + '%';
@@ -43,10 +45,50 @@ async function boot() {
   });
   win.value = S.win;
 
+  // a share link reproduces the exact view: category, window, basis, count, compare set
+  const q = new URLSearchParams(location.search);
+  if (q.get('win')) S.win = q.get('win');
+  if (q.get('basis')) S.basis = q.get('basis');
+  if (q.get('dir')) S.dir = q.get('dir');
+  if (q.get('plan')) S.plan = q.get('plan');
+  if (q.get('n')) S.n = Math.max(1, Math.min(500, Number(q.get('n')) || 20));
+  $('n').value = S.n;
+  win.value = S.win;
+  $('basis').value = S.basis;
+  $('dir').value = S.dir;
+  [...$('planSeg').children].forEach((b) => b.classList.toggle('on', b.dataset.plan === S.plan));
+
   buildCatNav();
   const preferred = S.meta.categories.find((c) => c.slug === 'large-cap-fund')
     || S.meta.categories.slice().sort((a, b) => b.count - a.count)[0];
-  if (preferred) await selectCat(preferred.slug);
+  if (q.get('cat') && S.meta.categories.some((c) => c.slug === q.get('cat'))) {
+    await selectCat(q.get('cat'));
+  } else if (preferred) await selectCat(preferred.slug);
+
+  $('btnCompare').onclick = () => openCompare();
+  $('btnClearCmp').onclick = () => { S.cmp = []; updateTray(); render(); };
+  $('cmpBack').onclick = () => closeCompare();
+  $('cmpCsv').onclick = () => compareCsv();
+  $('cmpShare').onclick = () => shareLink();
+  $('sipAmt').oninput = () => {
+    const cur = S.cat && S.sel ? S.cat.schemes.find((x) => x.c === S.sel) : null;
+    if (cur) renderSipResult(cur);
+  };
+  $('selAll').onchange = (e) => {
+    if (e.target.checked) {
+      VISIBLE.forEach((c) => { if (S.cmp.length < MAX_CMP && !S.cmp.includes(c)) S.cmp.push(c); });
+    } else {
+      S.cmp = S.cmp.filter((c) => !VISIBLE.includes(c));
+    }
+    updateTray(); render();
+  };
+  if (q.get('cmp')) {
+    S.cmp = q.get('cmp').split(',').filter(Boolean).slice(0, MAX_CMP);
+    updateTray();
+    if (S.cmp.length) await openCompare();
+  } else {
+    updateTray();
+  }
 
   win.onchange = () => { S.win = win.value; render(); };
   $('basis').onchange = (e) => {
@@ -177,11 +219,14 @@ function render() {
 
   let rows = S.cat.schemes.filter((s) => s.p === S.plan);
   if (S.search) rows = rows.filter((s) => s.n.toLowerCase().includes(S.search));
-  rows = rows.filter((s) => s.r[S.win] !== null);
+  // Keep funds that have no return for the selected window when the user is searching
+  // for them by name - otherwise a brand-new fund is unreachable ("No schemes match")
+  // even though it has a NAV chart and a SIP grid.
+  if (!S.search) rows = rows.filter((s) => s.r[S.win] !== null);
   rows.sort((a, b) => {
     const pick = (s) => S.sort === 'name' ? s.n.toLowerCase() : S.sort === 'amc' ? (s.a || '').toLowerCase()
       : S.sort === 'rank' ? (rankOf(s) ?? 1e9)
-        : (S.sort === 'ret' ? s.r[S.win] : s.n.toLowerCase());
+        : (S.sort === 'ret' ? (s.r[S.win] ?? -1e9) : s.n.toLowerCase());
     const x = pick(a), y = pick(b);
     if (x === y) return a.n.localeCompare(b.n);
     return (x > y ? 1 : -1) * (S.sortDesc ? -1 : 1);
@@ -201,7 +246,10 @@ function render() {
 
     const tr = document.createElement('tr');
     if (S.sel === s.c) tr.className = 'on';
+    const checked = S.cmp.includes(s.c) ? ' checked' : '';
     tr.innerHTML = `
+      <td class="selcol"><input type="checkbox" data-code="${s.c}"${checked}
+        aria-label="Select for comparison" title="Select for comparison"></td>
       <td class="num muted">${i + 1}</td>
       <td class="name"><b>${s.n}</b>${s.g ? `<span class="tag">${s.g}</span>` : ''}</td>
       <td class="muted">${s.a || '—'}</td>
@@ -213,8 +261,16 @@ function render() {
         ><span class="rankpill">${rk ?? '—'}${rk !== null && totalOf(s) ? ' / ' + totalOf(s) : ''}</span></td>
       <td class="num">${delta}</td>`;
     tr.onclick = () => { S.sel = s.c; render(); openDetail(s); };
+    const cb = tr.querySelector('input[type="checkbox"]');
+    cb.onclick = (e) => { e.stopPropagation(); toggleCmp(s.c, cb.checked); };
     tb.appendChild(tr);
   });
+  VISIBLE = rows.map((s) => s.c);
+  const allBox = $('selAll');
+  if (allBox) {
+    allBox.checked = VISIBLE.length > 0 && VISIBLE.every((c) => S.cmp.includes(c));
+    allBox.indeterminate = !allBox.checked && VISIBLE.some((c) => S.cmp.includes(c));
+  }
   $('empty').hidden = rows.length > 0;
 }
 
@@ -228,7 +284,7 @@ async function loadSeries(code) {
   const nav = raw.v.map((v) => (v === 0 ? null : v));
   const h = {};
   Object.keys(raw.h).forEach((k) => { h[k] = raw.h[k].map((v) => (v === 0 ? null : v)); });
-  S.series[code] = { nav, h };
+  S.series[code] = { nav, h, sip: raw.sip || null, cy: raw.cy || {} };
   return S.series[code];
 }
 
@@ -269,7 +325,7 @@ async function openDetail(scheme) {
     $('dStats').innerHTML = '<div class="stat"><div class="lab">error</div><div class="val neg">series unavailable</div></div>';
     return;
   }
-  if (S.sel === s.c) drawDetail(s);
+  if (S.sel === s.c) { drawDetail(s); renderSip(s); }
 }
 
 function drawDetail(scheme) {

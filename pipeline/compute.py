@@ -15,10 +15,12 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import statistics
 import re
 import shutil
 
 from . import categories
+from . import sip as sipmod
 
 WINDOWS = [
     ("1W", 7, "1 Week"),
@@ -77,7 +79,8 @@ def prev_bucket_index(days, i: int, basis: str) -> int:
     return -1
 NAV_SERIES_WEEKS = 522   # ~10 years of weekly NAV points for the NAV chart
 RANK_SERIES_WEEKS = 156  # ~3 years of weekly rank points for the rank chart
-SAMPLE_TOLERANCE = 12    # days a weekly sample may drift from the exact Friday
+SAMPLE_TOLERANCE = 12
+ACTIVE_DAYS = 45    # days a weekly sample may drift from the exact Friday
 MAX_STALE = 30           # a NAV older than this is treated as "scheme stopped reporting"
 
 
@@ -140,6 +143,38 @@ def _copy_site(dist_dir: str) -> None:
             shutil.copy2(src, dst)
 
 
+def _sip_medians(rows, sip_data):
+    """Median SIP XIRR per (plan, tenure, day) so the UI can rank a fund without
+    fetching every peer's series."""
+    out = {}
+    for plan in ("Direct", "Regular"):
+        cells = [[[] for _ in sipmod.DAYS] for _ in sipmod.STARTS]
+        any_data = False
+        for row in rows:
+            if row["p"] != plan:
+                continue
+            d = sip_data.get(row["c"])
+            if not d:
+                continue
+            for si in range(len(sipmod.STARTS)):
+                for di in range(len(sipmod.DAYS)):
+                    v = d["x"][si][di]
+                    if v is not None:
+                        cells[si][di].append(v)
+                        any_data = True
+        if not any_data:
+            continue
+        grid = []
+        for si in range(len(sipmod.STARTS)):
+            grow = []
+            for di in range(len(sipmod.DAYS)):
+                vals = sorted(cells[si][di])
+                grow.append(None if not vals else int(round(statistics.median(vals))))
+            grid.append(grow)
+        out[plan] = grid
+    return out
+
+
 def build(store, dist_dir: str) -> dict:
     _copy_site(dist_dir)
     end_day = store.max_day()
@@ -153,10 +188,20 @@ def build(store, dist_dir: str) -> dict:
 
     schemes = {s["code"]: s for s in store.schemes()}
     series = {}
+    sip_data = {}
+    cy_data = {}
     for code, pts in store.series():
         if code not in schemes:
             continue
         series[code] = _sample(pts, nav_grid)
+        # SIP / calendar years come from the FULL daily series, not the weekly grid:
+        # an instalment must buy at the NAV actually published on that date.
+        meta_s = schemes[code]
+        if meta_s["last_day"] is not None and meta_s["last_day"] >= end_day - ACTIVE_DAYS:
+            plan = sipmod.plan(pts, end_day)
+            if plan is not None:
+                sip_data[code] = plan
+                cy_data[code] = sipmod.calendar_years(pts, end_day)
 
     dates = [(dt.date(1970, 1, 1) + dt.timedelta(days=g)).isoformat() for g in nav_grid]
 
@@ -232,7 +277,6 @@ def build(store, dist_dir: str) -> dict:
     # Schemes whose NAV stopped updating (merged / closed / renamed codes) stay in
     # the store for history but are not published - they would otherwise ship
     # thousands of all-null series and pollute the category counts.
-    ACTIVE_DAYS = 45
     by_cat = {}
     for code, meta in schemes.items():
         if code not in rets:
@@ -282,6 +326,8 @@ def build(store, dist_dir: str) -> dict:
                 "c": code,
                 "v": [0 if v is None else round(v, 4) for v in navs],
                 "h": {k: [enc_rank(x) for x in ranks[code][k]] for k, _, _ in WINDOWS},
+                "sip": sip_data.get(code),
+                "cy": cy_data.get(code) or {},
             }
             with open(os.path.join(ser_dir, code + ".json"), "w") as fh:
                 json.dump(payload, fh, separators=(",", ":"))
@@ -304,6 +350,7 @@ def build(store, dist_dir: str) -> dict:
             "asset": categories.asset_class(canon),
             "count": len(rows),
             "schemes": rows,
+            "sipm": _sip_medians(rows, sip_data),
         }
         with open(os.path.join(cat_dir, categories.slug(canon) + ".json"), "w") as fh:
             json.dump(payload, fh, separators=(",", ":"))
@@ -329,6 +376,14 @@ def build(store, dist_dir: str) -> dict:
         "basis_prev_asof": {b: (dates[rank_offset + basis_prev[b]] if basis_prev[b] >= 0 else None)
                             for b, _ in BASES},
         "categories": cat_index,
+        "sip": {
+            "starts": sipmod.STARTS,
+            "days": sipmod.DAYS,
+            "amount": 1000,
+            "min_instalments": sipmod.MIN_INSTALMENTS,
+            "note": "XIRR per tenure x SIP day, instalments at the first NAV on/after "
+                    "the chosen day, growth option only, no exit load or tax",
+        },
     }
     with open(os.path.join(data_dir, "meta.json"), "w") as fh:
         json.dump(meta_payload, fh, separators=(",", ":"))

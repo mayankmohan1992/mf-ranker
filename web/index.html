@@ -73,7 +73,7 @@
       </div>
     </div>
 
-    <section class="card">
+    <section class="card" id="rankCard">
       <div class="card-head">
         <h2 id="catTitle">—</h2>
         <div class="legend" id="catMeta"></div>
@@ -82,6 +82,7 @@
         <table id="tbl">
           <thead>
             <tr>
+              <th class="selcol"><input type="checkbox" id="selAll" title="Select all visible for comparison" aria-label="Select all visible"></th>
               <th class="num">#</th>
               <th class="sortable" data-sort="name">Scheme</th>
               <th class="sortable" data-sort="amc">Fund house</th>
@@ -94,6 +95,47 @@
         </table>
       </div>
       <div class="empty" id="empty" hidden>No schemes match.</div>
+    </section>
+
+    <div class="tray" id="tray" hidden>
+      <span id="trayCount">0 selected</span>
+      <span class="muted" id="trayHint">up to 20 can be compared</span>
+      <button id="btnCompare" class="primary">Compare</button>
+      <button id="btnClearCmp" class="ghost">Clear</button>
+    </div>
+
+    <section class="card cmpview" id="cmpView" hidden>
+      <div class="card-head">
+        <div>
+          <h2 id="cmpTitle">Comparing</h2>
+          <div class="legend" id="cmpMeta">—</div>
+        </div>
+        <div class="head-actions">
+          <button id="cmpCsv" class="ghost">Export CSV</button>
+          <button id="cmpShare" class="ghost">Copy link</button>
+          <button id="cmpBack" class="icon-btn" title="Back to rankings">✕</button>
+        </div>
+      </div>
+      <div class="warn" id="cmpWarn" hidden></div>
+      <div class="cmp-grid">
+        <figure class="wide">
+          <figcaption>Growth of ₹10,000 <span class="muted" id="cmpSpan"></span></figcaption>
+          <canvas id="cmpChart" height="330"></canvas>
+          <div class="cmp-legend" id="cmpLegend"></div>
+        </figure>
+        <figure>
+          <figcaption>Summary</figcaption>
+          <div class="cmp-scroll"><table class="mini" id="cmpTable"></table></div>
+        </figure>
+        <figure>
+          <figcaption>Calendar-year returns <span class="muted">(%)</span></figcaption>
+          <div class="cmp-scroll"><table class="mini" id="cmpCal"></table></div>
+        </figure>
+        <figure>
+          <figcaption>Return correlation <span class="muted">(weekly, not holdings overlap)</span></figcaption>
+          <div class="cmp-scroll"><table class="mini corr" id="cmpCorr"></table></div>
+        </figure>
+      </div>
     </section>
 
   </main>
@@ -131,11 +173,27 @@
         <canvas id="rankChart" height="220"></canvas>
       </figure>
     </div>
+    <section class="sipblock">
+      <div class="siphead">
+        <h3>SIP simulator</h3>
+        <label class="amt">Monthly ₹<input id="sipAmt" type="number" min="100" step="500" value="5000" inputmode="numeric"></label>
+        <span class="muted" id="sipNote">XIRR by tenure and SIP day · click a cell</span>
+      </div>
+      <div class="sipbody">
+        <table class="sipgrid" id="sipGrid"></table>
+        <div class="sipresult" id="sipResult">Pick a tenure and day to simulate.</div>
+      </div>
+      <p class="disclaimer">Instalments buy at the first NAV published on or after the chosen day. Growth option
+        only; no exit load, stamp duty or tax. XIRR is money-weighted and independent of the amount.</p>
+    </section>
+
     <p class="disclaimer">Past NAV performance, recomputed from AMFI's own files. Rank 1 = best in the
       ranking group for that window. Windows under a year are absolute returns, a year and longer are CAGR.</p>
   </div>
 </div>
 
 <script src="app.js"></script>
+<script src="sip.js"></script>
+<script src="compare.js"></script>
 </body>
 </html>

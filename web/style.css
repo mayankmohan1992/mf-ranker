@@ -74,6 +74,7 @@ th{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mu
 th.sortable{cursor:pointer;user-select:none}
 th.sortable:hover{color:var(--ink)}
 th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+th .basis{text-transform:none;letter-spacing:0;color:var(--accent);font-size:10px;margin-left:2px}
 tbody tr{cursor:pointer}
 tbody tr:hover{background:var(--panel2)}
 tbody tr.on{background:#1a2f2b;box-shadow:inset 3px 0 0 var(--accent)}

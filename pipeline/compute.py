@@ -31,6 +31,50 @@ WINDOWS = [
     ("10Y", 3650, "10 Years"),
 ]
 WIN_DAYS = {k: d for k, d, _ in WINDOWS}
+
+# The ranking basis is the observation frequency of the rank series. The table
+# shows the rank as of the last COMPLETED bucket of the selected basis, so
+# "weekly" and "quarterly" are genuinely different numbers, not the same one
+# relabelled.
+BASES = [
+    ("weekly", "Weekly"),
+    ("monthly", "Monthly"),
+    ("quarterly", "Quarterly"),
+    ("halfyearly", "Half-yearly"),
+    ("annual", "Annual"),
+]
+
+
+def bucket_of(day: int, basis: str):
+    d = dt.date(1970, 1, 1) + dt.timedelta(days=day)
+    if basis == "weekly":
+        iso = d.isocalendar()
+        return (iso[0], iso[1])
+    if basis == "monthly":
+        return (d.year, d.month)
+    if basis == "quarterly":
+        return (d.year, (d.month - 1) // 3)
+    if basis == "halfyearly":
+        return (d.year, 0 if d.month <= 6 else 1)
+    return (d.year,)
+
+
+def last_completed_index(days, basis: str) -> int:
+    """Index of the last observation in the most recent *finished* bucket."""
+    cur = bucket_of(days[-1], basis)
+    for i in range(len(days) - 1, -1, -1):
+        if bucket_of(days[i], basis) != cur:
+            return i
+    return len(days) - 1
+
+
+def prev_bucket_index(days, i: int, basis: str) -> int:
+    """Index of the last observation of the bucket before the one holding i."""
+    cur = bucket_of(days[i], basis)
+    for j in range(i - 1, -1, -1):
+        if bucket_of(days[j], basis) != cur:
+            return j
+    return -1
 NAV_SERIES_WEEKS = 522   # ~10 years of weekly NAV points for the NAV chart
 RANK_SERIES_WEEKS = 156  # ~3 years of weekly rank points for the rank chart
 SAMPLE_TOLERANCE = 12    # days a weekly sample may drift from the exact Friday
@@ -151,9 +195,14 @@ def build(store, dist_dir: str) -> dict:
         groups.setdefault(key, []).append(code)
 
     ranks = {code: {k: [None] * len(rank_grid) for k, _, _ in WINDOWS} for code in schemes}
-    group_sizes = {code: {} for code in schemes}
+    # totals are per group, per window, per observation - not a single scalar,
+    # otherwise "3/38" lies as soon as you look at anything but the last week
+    group_tot = {}
+    group_of = {}
 
     for key, codes in groups.items():
+        for code in codes:
+            group_of[code] = key
         if len(codes) < 1:
             continue
         for wi, (wk, _, _) in enumerate(WINDOWS):
@@ -167,9 +216,9 @@ def build(store, dist_dir: str) -> dict:
                     continue
                 pairs.sort(key=lambda p: (-p[0], p[1]))
                 total = len(pairs)
+                group_tot.setdefault((key, wk), [None] * len(rank_grid))[ri] = total
                 for pos, (_, code) in enumerate(pairs, start=1):
                     ranks[code][wk][ri] = pos
-                    group_sizes[code][wk] = total
 
     # ---- emit --------------------------------------------------------------
     data_dir = os.path.join(dist_dir, "data")
@@ -197,27 +246,35 @@ def build(store, dist_dir: str) -> dict:
 
     cat_index = []
     latest_i = len(nav_grid) - 1
+
+    # where each basis reads its rank from: the last finished week / month / quarter / ...
+    basis_idx = {b: last_completed_index(rank_grid, b) for b, _ in BASES}
+    basis_prev = {b: prev_bucket_index(rank_grid, basis_idx[b], b) for b, _ in BASES}
+
     for canon in sorted(by_cat, key=lambda c: (categories.order_of(c), c)):
         codes = by_cat[canon]
         rows = []
         for code in sorted(codes, key=lambda c: schemes[c]["name"]):
             meta = schemes[code]
-            latest_ret, latest_rank, latest_total, delta = {}, {}, {}, {}
+            gkey = group_of.get(code)
+            ret_map = {key: rets[code][key][latest_i] for key, _, _ in WINDOWS}
+            # Per-basis values are POSITIONAL arrays in BASES order (meta.bases gives
+            # the order). Keyed objects repeated "weekly"/"monthly"/... once per value
+            # and inflated the biggest category file to 1.5 MB.
+            k_map, n_map, d_map = {}, {}, {}
             for key, _, _ in WINDOWS:
-                latest_ret[key] = rets[code][key][latest_i]
                 hist = ranks[code][key]
-                r_last = r_prev = None
-                for i in range(len(hist) - 1, -1, -1):
-                    if hist[i] is not None:
-                        r_last = hist[i]
-                        for j in range(i - 1, -1, -1):
-                            if hist[j] is not None:
-                                r_prev = hist[j]
-                                break
-                        break
-                latest_rank[key] = r_last
-                latest_total[key] = group_sizes[code].get(key)
-                delta[key] = None if (r_last is None or r_prev is None) else r_prev - r_last
+                tot = group_tot.get((gkey, key)) or []
+                kb, nb, db = [], [], []
+                for b, _ in BASES:
+                    i = basis_idx[b]
+                    r = hist[i] if 0 <= i < len(hist) else None
+                    kb.append(r)
+                    nb.append(tot[i] if (r is not None and i < len(tot)) else None)
+                    j = basis_prev[b]
+                    r_prev = hist[j] if 0 <= j < len(hist) else None
+                    db.append(None if (r is None or r_prev is None) else r_prev - r)
+                k_map[key], n_map[key], d_map[key] = kb, nb, db
 
             # per-scheme series file: NAV history + rank history, fetched on click
             navs = series[code]
@@ -236,10 +293,10 @@ def build(store, dist_dir: str) -> dict:
                     "a": meta["amc"],
                     "p": meta["plan"],
                     "g": meta["rgroup"] or "",
-                    "r": latest_ret,
-                    "k": latest_rank,
-                    "N": latest_total,
-                    "d": delta,
+                    "r": ret_map,
+                    "k": k_map,
+                    "N": n_map,
+                    "d": d_map,
                 }
             )
         payload = {
@@ -267,6 +324,8 @@ def build(store, dist_dir: str) -> dict:
                     for k, d, lbl in WINDOWS],
         "dates": dates,
         "rank_dates": dates[rank_offset:],
+        "bases": [{"key": b, "label": lbl} for b, lbl in BASES],
+        "basis_asof": {b: dates[rank_offset + basis_idx[b]] for b, _ in BASES},
         "categories": cat_index,
     }
     with open(os.path.join(data_dir, "meta.json"), "w") as fh:

@@ -49,8 +49,21 @@ async function boot() {
   if (preferred) await selectCat(preferred.slug);
 
   win.onchange = () => { S.win = win.value; render(); };
-  $('basis').onchange = (e) => { S.basis = e.target.value; if (S.sel) drawDetail(); };
-  $('dir').onchange = (e) => { S.dir = e.target.value; S.sort = 'ret'; render(); };
+  $('basis').onchange = (e) => {
+    S.basis = e.target.value;
+    render();                       // ranks + header + ordering all depend on the basis
+    if (!$('modal').hidden && S.sel) {
+      const cur = S.cat.schemes.find((x) => x.c === S.sel);
+      if (cur) openDetailMeta(cur);
+      drawDetail();
+    }
+  };
+  $('dir').onchange = (e) => {
+    S.dir = e.target.value;
+    S.sort = 'ret';
+    S.sortDesc = true;              // reset direction: 'rank' sorting leaves this false
+    render();
+  };
   $('n').onchange = (e) => { S.n = Math.max(1, Math.min(500, +e.target.value || 20)); render(); };
   $('search').oninput = (e) => { S.search = e.target.value.toLowerCase().trim(); render(); };
   $('planSeg').onclick = (e) => {
@@ -66,7 +79,9 @@ async function boot() {
   document.querySelectorAll('th.sortable').forEach((th) => {
     th.onclick = () => {
       const key = th.dataset.sort;
-      if (S.sort === key) S.sortDesc = !S.sortDesc; else { S.sort = key; S.sortDesc = key !== 'name'; }
+      // name and rank read best-first; return and fund house read biggest-first
+      if (S.sort === key) S.sortDesc = !S.sortDesc;
+      else { S.sort = key; S.sortDesc = !(key === 'name' || key === 'rank'); }
       render();
     };
   });
@@ -116,7 +131,24 @@ function currentWindowLabel() {
   return w ? w.label : S.win;
 }
 
-function rankOf(s) { const r = s.k[S.win]; return r === null || r === undefined ? null : r; }
+function basisLabel() {
+  const b = (S.meta.bases || []).find((x) => x.key === S.basis);
+  return b ? b.label : S.basis;
+}
+function basisAsOf() { return (S.meta.basis_asof || {})[S.basis] || ''; }
+/* per-basis values arrive as positional arrays in meta.bases order */
+function basisIndex() {
+  const i = (S.meta.bases || []).findIndex((b) => b.key === S.basis);
+  return i < 0 ? 0 : i;
+}
+function atBasis(arr) {
+  if (!arr) return null;
+  const v = arr[basisIndex()];
+  return v === undefined ? null : v;
+}
+function rankOf(s) { return atBasis(s.k[S.win]); }
+function totalOf(s) { return atBasis(s.N[S.win]); }
+function deltaOf(s) { return atBasis(s.d[S.win]); }
 
 function render() {
   syncTopbarHeight();   // cheap re-measure: also self-corrects if a resize event was missed
@@ -127,8 +159,14 @@ function render() {
     + `· ranked by ${currentWindowLabel()} return `
     + `${S.cat.schemes.some((s) => s.g) ? '· index/theme funds ranked within their own benchmark' : ''}`;
   $('thRet').textContent = currentWindowLabel();
+  const asOf = basisAsOf();
+  $('thRank').innerHTML = `Rank <span class="basis">· ${basisLabel()}</span>`;
+  $('thRank').title = asOf
+    ? `${currentWindowLabel()} rank within category, ${basisLabel().toLowerCase()} as of ${asOf}`
+    : `${currentWindowLabel()} rank within category`;
   $('ctxHint').textContent = `Showing ${S.dir === 'top' ? 'top' : 'bottom'} ${S.n} of ${planTotal}`
-    + (S.dir === 'top' ? '' : ' — worst first');
+    + (S.dir === 'top' ? '' : ' — worst first')
+    + (asOf ? ` · ranks as of ${asOf} (${basisLabel().toLowerCase()})` : '');
 
   let rows = S.cat.schemes.filter((s) => s.p === S.plan);
   if (S.search) rows = rows.filter((s) => s.n.toLowerCase().includes(S.search));
@@ -148,7 +186,7 @@ function render() {
   tb.innerHTML = '';
   rows.forEach((s, i) => {
     const rk = rankOf(s);
-    const dv = s.d[S.win];                            // positive = improved (rank number fell)
+    const dv = deltaOf(s);                            // positive = improved (rank number fell)
     let delta = '<span class="muted">—</span>';
     if (dv !== null && dv !== undefined && dv !== 0) {
       delta = `<span class="${dv > 0 ? 'pos' : 'neg'}">${dv > 0 ? '▲' : '▼'} ${Math.abs(dv)}</span>`;
@@ -161,7 +199,7 @@ function render() {
       <td class="name"><b>${s.n}</b>${s.g ? `<span class="tag">${s.g}</span>` : ''}</td>
       <td class="muted">${s.a || '—'}</td>
       <td class="num ${cls(s.r[S.win])}">${fmtPct(s.r[S.win])}</td>
-      <td class="num"><span class="rankpill">${rk ?? '—'}${rk !== null && s.N[S.win] ? ' / ' + s.N[S.win] : ''}</span></td>
+      <td class="num"><span class="rankpill">${rk ?? '—'}${rk !== null && totalOf(s) ? ' / ' + totalOf(s) : ''}</span></td>
       <td class="num">${delta}</td>`;
     tr.onclick = () => { S.sel = s.c; render(); openDetail(s); };
     tb.appendChild(tr);
@@ -201,12 +239,18 @@ function closeModal(doRender = true) {
   if (doRender) render();
 }
 
+function openDetailMeta(s) {
+  $('dName').textContent = s.n;
+  const asOf = basisAsOf();
+  $('dMeta').innerHTML = `${s.a || '—'}${s.g ? ' · ' + s.g : ''} · ${S.plan} plan · ${S.cat.name}`
+    + (asOf ? ` · ranks as of ${asOf} (${basisLabel().toLowerCase()})` : '');
+}
+
 async function openDetail(scheme) {
   const s = scheme || S.cat.schemes.find((x) => x.c === S.sel);
   if (!s) return;
   openModal();
-  $('dName').textContent = s.n;
-  $('dMeta').innerHTML = `${s.a || '—'}${s.g ? ' · ' + s.g : ''} · ${S.plan} plan · ${S.cat.name}`;
+  openDetailMeta(s);
   $('dStats').innerHTML = '<div class="stat"><div class="lab">loading</div><div class="val muted">…</div></div>';
   try {
     s._series = await loadSeries(s.c);
@@ -221,20 +265,18 @@ function drawDetail(scheme) {
   const s = scheme || (S.cat.schemes.find((x) => x.c === S.sel) || null);
   if (!s || !s._series) return;
   const ser = s._series;
-  $('dName').textContent = s.n;
-  $('dMeta').innerHTML = `${s.a || '—'}${s.g ? ' · ' + s.g : ''} · ${S.plan} plan · `
-    + `${S.cat.name} · ${S.cat.asset}`;
+  openDetailMeta(s);      // single source for the header line (name, category, rank as-of)
 
   const stats = $('dStats');
   stats.innerHTML = '';
   S.meta.windows.forEach((w) => {
     const v = s.r[w.key];
-    const rk = s.k[w.key];
+    const rk = atBasis(s.k[w.key]);
     const d = document.createElement('div');
     d.className = 'stat';
     d.innerHTML = `<div class="lab">${w.label}</div>
       <div class="val ${cls(v)}">${fmtPct(v)}</div>
-      <div class="r">${rk !== null ? 'rank ' + rk + (s.N[w.key] ? '/' + s.N[w.key] : '') : 'not ranked'}</div>`;
+      <div class="r">${rk != null ? 'rank ' + rk + (atBasis(s.N[w.key]) ? '/' + atBasis(s.N[w.key]) : '') : 'not ranked'}</div>`;
     stats.appendChild(d);
   });
 
@@ -260,7 +302,7 @@ function drawDetail(scheme) {
   }
   const clean = picked.filter((p) => p.v !== null);
   const bestPossible = 1;
-  const maxRank = Math.max(clean.reduce((a, p) => Math.max(a, p.v), 0), s.N[S.win] || 0, 2);
+  const maxRank = Math.max(clean.reduce((a, p) => Math.max(a, p.v), 0), atBasis(s.N[S.win]) || 0, 2);
   $('rankSpanLabel').textContent = `${picked.length} ${S.basis} points · ${currentWindowLabel()} rank`;
   $('rankAxisNote').textContent = ' (rank 1 at top)';
   drawChart($('rankChart'), clean, {

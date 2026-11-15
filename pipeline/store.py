@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS schemes (
     last_day  INTEGER
 ) WITHOUT ROWID;
 
+CREATE TABLE IF NOT EXISTS scheme_isin (
+    code TEXT PRIMARY KEY,
+    isin TEXT NOT NULL
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -71,6 +76,7 @@ class Store:
         kept = 0
         nav_batch = []
         scheme_batch = []
+        isin_batch = []
         cat_cache = {}
         for r in rows:
             if amfi.option_of(r) != "Growth":
@@ -85,6 +91,8 @@ class Store:
             canon, asset = cat_cache[section]
             code = r["code"]
             day = to_day(r["date"])
+            if r.get("isin"):
+                isin_batch.append((code, r["isin"]))
             nav_batch.append((code, day, r["nav"]))
             scheme_batch.append(
                 (
@@ -126,6 +134,12 @@ class Store:
             """,
             scheme_batch,
         )
+        if isin_batch:
+            self.db.executemany(
+                "INSERT INTO scheme_isin(code,isin) VALUES (?,?) "
+                "ON CONFLICT(code) DO UPDATE SET isin = excluded.isin",
+                isin_batch,
+            )
         self.db.commit()
         return kept
 
@@ -170,6 +184,10 @@ class Store:
                 "first_day": row[7],
                 "last_day": row[8],
             }
+
+    def isins(self):
+        """code -> latest ISIN seen in AMFI files."""
+        return dict(self.db.execute("SELECT code,isin FROM scheme_isin"))
 
     def series(self):
         """Yield (code, [ (day, nav), ... ]) ordered by date."""
@@ -232,6 +250,9 @@ class Store:
         alive = {r[0] for r in keep_schemes}
         out.executemany(
             "INSERT INTO schemes VALUES (?,?,?,?,?,?,?,?,?,?)", keep_schemes)
+        out.executemany(
+            "INSERT INTO scheme_isin VALUES (?,?)",
+            self.db.execute("SELECT code,isin FROM scheme_isin"))
 
         batch = []
         code = None

@@ -186,9 +186,12 @@ def parse(text: str):
 
         plan = ""
         option = ""
+        isin = ""
         for field in middle:
             low = field.lower()
-            if low.startswith("in") and len(field) == 12:  # ISIN
+            if ISIN_RE.match(field.upper()):      # strict shape, not a prefix guess
+                if not isin:
+                    isin = field.upper()
                 continue
             if not plan and ("direct" in low or "regular" in low):
                 plan = "Direct" if "direct" in low else "Regular"
@@ -202,6 +205,7 @@ def parse(text: str):
             "name": name,
             "plan": plan,
             "option": option,
+            "isin": isin,
             "nav": nav,
             "date": date,
             "section": section,

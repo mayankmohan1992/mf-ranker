@@ -176,6 +176,12 @@ def _sip_medians(rows, sip_data):
     return out
 
 
+# "Unclaimed Redemption Plan" / "Unclaimed Brokerage I.E.F." are AMFI's parking
+# schemes for unclaimed amounts, not retail schemes: AMFI publishes no ISIN for them,
+# their NAVs are not comparable, and they diluted the peer groups.
+NOT_A_RETAIL_SCHEME = re.compile(r"unclaimed|i\.e\.f|brokerage|unit linked insurance", re.I)
+
+
 def build(store, dist_dir: str) -> dict:
     _copy_site(dist_dir)
     end_day = store.max_day()
@@ -284,7 +290,44 @@ def build(store, dist_dir: str) -> dict:
             continue
         if meta["last_day"] is None or meta["last_day"] < end_day - ACTIVE_DAYS:
             continue
+        if NOT_A_RETAIL_SCHEME.search(meta["name"] or ""):
+            continue
         by_cat.setdefault(meta["category"], []).append(code)
+
+    # ---- ISIN dedupe --------------------------------------------------------
+    # AMFI ships a few funds under two scheme codes. The ISIN is the security id, so
+    # two codes with the same ISIN in the same plan are the same fund: keep the one
+    # with the live, longer series and drop the rest from publication (they stay in
+    # the store, so history is not lost).
+    isins = store.isins()
+    published_codes = [c for codes in by_cat.values() for c in codes]
+    _by_isin = {}
+    for c in published_codes:
+        i = isins.get(c)
+        if i:
+            _by_isin.setdefault((i, schemes[c]["plan"]), []).append(c)
+    dropped = {}
+    for (_i, _p), codes in _by_isin.items():
+        if len(codes) < 2:
+            continue
+
+        def _score(c):
+            m = schemes[c]
+            alive = 1 if (m["last_day"] or 0) >= end_day - ACTIVE_DAYS else 0
+            return (alive, (m["last_day"] or 0) - (m["first_day"] or 0), c)
+
+        keep = max(codes, key=_score)
+        for c in codes:
+            if c != keep:
+                dropped[c] = keep
+    if dropped:
+        for canon in list(by_cat):
+            kept_codes = [c for c in by_cat[canon] if c not in dropped]
+            if kept_codes:
+                by_cat[canon] = kept_codes
+            else:
+                del by_cat[canon]
+        published_codes = [c for c in published_codes if c not in dropped]
 
     # ---- short display names ------------------------------------------------
     # "Fund - Direct Plan - Growth Option" -> "Fund D-G". The official name is kept
@@ -414,6 +457,7 @@ def build(store, dist_dir: str) -> dict:
 
     return {
         "schemes": len(lookup),
+        "isin_duplicates_dropped": len(dropped),
         "duplicate_display_names": dup_display,
         "dates": len(dates),
         "categories": len(cat_index),

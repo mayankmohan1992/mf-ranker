@@ -56,7 +56,7 @@ async function boot() {
   $('planSeg').onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
     [...$('planSeg').children].forEach((x) => x.classList.toggle('on', x === b));
-    S.plan = b.dataset.plan; S.sel = null; $('detail').hidden = true; render();
+    S.plan = b.dataset.plan; closeModal(false); render();
   };
   $('spanSeg').onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
@@ -70,7 +70,15 @@ async function boot() {
       render();
     };
   });
-  window.addEventListener('resize', () => { syncTopbarHeight(); if (S.sel) drawDetail(); });
+  window.addEventListener('resize', () => {
+    syncTopbarHeight();
+    if (!$('modal').hidden && S.sel) drawDetail();
+  });
+  $('closeModal').onclick = () => closeModal();
+  $('modal').querySelector('[data-close]').onclick = () => closeModal();
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('modal').hidden) closeModal();
+  });
 }
 
 function buildCatNav() {
@@ -98,7 +106,7 @@ async function selectCat(slug) {
   S.slug = slug;
   document.querySelectorAll('.cat-item').forEach((b) => b.classList.toggle('on', b.dataset.slug === slug));
   S.cat = await (await fetch(`data/cat/${slug}.json`)).json();
-  S.sel = null; $('detail').hidden = true;
+  closeModal(false);
   render();
 }
 
@@ -175,10 +183,28 @@ async function loadSeries(code) {
   return S.series[code];
 }
 
+function openModal() {
+  const m = $('modal');
+  if (m.hidden) {
+    m.hidden = false;
+    document.body.classList.add('modal-open');
+  }
+}
+
+function closeModal(doRender = true) {
+  const m = $('modal');
+  if (m && !m.hidden) {
+    m.hidden = true;
+    document.body.classList.remove('modal-open');
+  }
+  S.sel = null;
+  if (doRender) render();
+}
+
 async function openDetail(scheme) {
   const s = scheme || S.cat.schemes.find((x) => x.c === S.sel);
   if (!s) return;
-  $('detail').hidden = false;
+  openModal();
   $('dName').textContent = s.n;
   $('dMeta').innerHTML = `${s.a || '—'}${s.g ? ' · ' + s.g : ''} · ${S.plan} plan · ${S.cat.name}`;
   $('dStats').innerHTML = '<div class="stat"><div class="lab">loading</div><div class="val muted">…</div></div>';
@@ -195,7 +221,6 @@ function drawDetail(scheme) {
   const s = scheme || (S.cat.schemes.find((x) => x.c === S.sel) || null);
   if (!s || !s._series) return;
   const ser = s._series;
-  $('detail').hidden = false;
   $('dName').textContent = s.n;
   $('dMeta').innerHTML = `${s.a || '—'}${s.g ? ' · ' + s.g : ''} · ${S.plan} plan · `
     + `${S.cat.name} · ${S.cat.asset}`;
@@ -257,10 +282,19 @@ function bucketKey(iso, basis) {
 /* ---------------- tiny canvas chart ---------------- */
 function drawChart(canvas, points, opts) {
   const dpr = window.devicePixelRatio || 1;
-  const cssW = canvas.clientWidth || 420;
-  const cssH = +canvas.getAttribute('height') || 220;
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
+  // The CSS height is captured ONCE into data-h. Reading it back from the height
+  // attribute was self-poisoning: we overwrite that attribute with the device-pixel
+  // height, so every redraw (i.e. every mousemove) doubled the canvas and the chart
+  // walked off the bottom of the screen.
+  const cssH = +(canvas.dataset.h || canvas.getAttribute('height') || 220);
+  if (!canvas.dataset.h) canvas.dataset.h = String(cssH);
+  canvas.style.height = cssH + 'px';
+  const cssW = Math.max(120, canvas.clientWidth || 420);
+  const bw = Math.round(cssW * dpr), bh = Math.round(cssH * dpr);
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
+  }
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);

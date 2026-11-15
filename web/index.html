@@ -96,36 +96,44 @@
       <div class="empty" id="empty" hidden>No schemes match.</div>
     </section>
 
-    <section class="card detail" id="detail" hidden>
-      <div class="card-head">
-        <div>
-          <h2 id="dName">—</h2>
-          <div class="legend" id="dMeta"></div>
-        </div>
+  </main>
+</div>
+
+<!-- scheme detail: modal, so the charts never push the page around -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="dName">
+    <div class="card-head">
+      <div class="modal-title">
+        <h2 id="dName">—</h2>
+        <div class="legend" id="dMeta"></div>
+      </div>
+      <div class="head-actions">
         <div class="seg" id="spanSeg">
           <button data-span="1Y" class="on">1Y</button>
           <button data-span="3Y">3Y</button>
           <button data-span="max">Max</button>
         </div>
+        <button class="icon-btn" id="closeModal" aria-label="Close" title="Close (Esc)">✕</button>
       </div>
+    </div>
 
-      <div class="stats" id="dStats"></div>
+    <div class="stats" id="dStats"></div>
 
-      <div class="charts">
-        <figure>
-          <figcaption>NAV history <span id="navSpanLabel" class="muted"></span></figcaption>
-          <canvas id="navChart" height="220"></canvas>
-        </figure>
-        <figure>
-          <figcaption>Rank within category <span id="rankSpanLabel" class="muted"></span>
-            <em id="rankAxisNote" class="muted"></em></figcaption>
-          <canvas id="rankChart" height="220"></canvas>
-        </figure>
-      </div>
-      <p class="disclaimer">Past NAV performance, recomputed from AMFI's own files. Rank 1 = best in the
-        ranking group for that window. Windows under a year are absolute returns, a year and longer are CAGR.</p>
-    </section>
-  </main>
+    <div class="charts">
+      <figure>
+        <figcaption>NAV history <span id="navSpanLabel" class="muted"></span></figcaption>
+        <canvas id="navChart" height="220"></canvas>
+      </figure>
+      <figure>
+        <figcaption>Rank within category <span id="rankSpanLabel" class="muted"></span>
+          <em id="rankAxisNote" class="muted"></em></figcaption>
+        <canvas id="rankChart" height="220"></canvas>
+      </figure>
+    </div>
+    <p class="disclaimer">Past NAV performance, recomputed from AMFI's own files. Rank 1 = best in the
+      ranking group for that window. Windows under a year are absolute returns, a year and longer are CAGR.</p>
+  </div>
 </div>
 
 <script src="app.js"></script>

@@ -139,7 +139,7 @@ button.primary:disabled{opacity:.45;cursor:not-allowed}
 button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);
   border-radius:8px;padding:6px 11px;cursor:pointer;font:inherit}
 button.ghost:hover{border-color:var(--accent)}
-.cmpview .cmp-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 4px 14px}
+.cmpview .cmp-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;padding:0 4px 14px}
 .cmpview figure{margin:0;background:var(--panel2);border:1px solid var(--line);
   border-radius:var(--radius);padding:10px}
 .cmpview figure.wide{grid-column:1 / -1}
@@ -191,4 +191,37 @@ table.corr td{border:1px solid var(--line);text-align:right}
   padding:10px 12px;font-size:12px;line-height:1.7}
 .siprow{display:flex;flex-wrap:wrap;gap:6px 16px}
 .siprow .k{color:var(--accent)}
-@media(max-width:820px){ .sipbody{grid-template-columns:1fr} .cmpview .cmp-grid{grid-template-columns:1fr} }
+@media(max-width:820px){ .sipbody{grid-template-columns:minmax(0,1fr)} .cmpview .cmp-grid{grid-template-columns:minmax(0,1fr)} }
+
+/* grid children default to min-width:auto, so a nowrap table inside a scroll box
+   refuses to shrink and pushes the whole page sideways */
+.cmpview .cmp-grid > figure{min-width:0}
+.cmpview .cmp-scroll{max-width:100%;overflow-x:auto}
+.cmpview figcaption{white-space:normal}
+
+/* compare header actions must wrap: three buttons in one row overflowed a 410px
+   viewport by 98px (found by measuring, not by looking) */
+.cmpview .card-head{flex-wrap:wrap;gap:8px}
+.cmpview .head-actions{flex-wrap:wrap;justify-content:flex-end;row-gap:6px}
+@media(max-width:520px){
+  .cmpview .card-head{flex-direction:column;align-items:flex-start}
+  .cmpview .head-actions{width:100%;justify-content:flex-start}
+  .cmpview .card-head h2{font-size:15px}
+  .cmpview .legend{white-space:normal}
+  .cmpview .head-actions button.ghost{padding:5px 8px;font-size:11px}
+}
+
+/* below ~400px the toolbar's grow control kept its min-width and pushed the page 20px */
+@media(max-width:420px){
+  .controls{gap:10px}
+  .ctl.grow{flex-basis:100%;min-width:0}
+  #ctxHint{min-width:0;overflow-wrap:anywhere}
+}
+
+/* the sidebar was a fixed 246px column with no breakpoint, so the content column
+   had no room below ~400px and the page scrolled sideways */
+@media(max-width:720px){
+  .layout{grid-template-columns:minmax(0,1fr)}
+  .sidebar{position:static;height:auto;max-height:38vh;overflow:auto;
+    border-right:0;border-bottom:1px solid var(--line)}
+}

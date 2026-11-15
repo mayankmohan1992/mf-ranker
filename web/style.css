@@ -3,6 +3,7 @@
   --ink:#e8edf4; --muted:#8b97a8; --accent:#5ac8b0; --accent2:#f2b24a;
   --up:#3ddc97; --down:#ff6b6b;
   --radius:10px;
+  --topbar-h:64px;   /* measured at runtime; the topbar wraps on narrow screens */
   font-synthesis-weight:none;
 }
 *{box-sizing:border-box}
@@ -25,7 +26,7 @@ h1,h2{margin:0;font-weight:600;letter-spacing:-.01em}
 
 /* ---------- layout ---------- */
 .layout{display:grid;grid-template-columns:246px minmax(0,1fr);gap:0;align-items:start}
-.sidebar{position:sticky;top:63px;height:calc(100vh - 63px);display:flex;flex-direction:column;
+.sidebar{position:sticky;top:var(--topbar-h);height:calc(100vh - var(--topbar-h));display:flex;flex-direction:column;
   border-right:1px solid var(--line);background:var(--panel)}
 .searchbox{padding:12px;border-bottom:1px solid var(--line)}
 .searchbox input{width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--line);
@@ -64,11 +65,12 @@ h1,h2{margin:0;font-weight:600;letter-spacing:-.01em}
 .legend{color:var(--muted);font-size:11.5px;margin-top:3px}
 
 /* ---------- table ---------- */
-.table-wrap{overflow-x:auto}
+.table-wrap{overflow:auto;max-height:max(260px, calc(100vh - var(--topbar-h) - 210px));
+  overscroll-behavior:contain}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
 th{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
-  font-weight:500;background:var(--panel2);position:sticky;top:63px}
+  font-weight:500;background:var(--panel2);position:sticky;top:0;z-index:2}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable:hover{color:var(--ink)}
 th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}

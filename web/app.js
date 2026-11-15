@@ -13,8 +13,23 @@ const fmtPct = (v) => (v === null || v === undefined) ? '—' : (v > 0 ? '+' : '
 const cls = (v) => v === null || v === undefined ? 'muted' : (v > 0 ? 'pos' : v < 0 ? 'neg' : 'muted');
 const fmtNav = (v) => v === null || v === undefined ? '—' : v.toFixed(2);
 
+/* ---------------- layout ---------------- */
+/* The topbar is sticky and wraps to two lines on narrow windows, so its height is
+   measured rather than assumed: the sticky table header and the sidebar offset
+   both hang off this variable. */
+function syncTopbarHeight() {
+  const h = document.querySelector('.topbar').getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--topbar-h', Math.round(h) + 'px');
+}
+window.addEventListener('resize', syncTopbarHeight);
+window.addEventListener('load', syncTopbarHeight);
+
 /* ---------------- boot ---------------- */
 async function boot() {
+  syncTopbarHeight();
+  if (window.ResizeObserver) {
+    new ResizeObserver(syncTopbarHeight).observe(document.querySelector('.topbar'));
+  }
   S.meta = await (await fetch('data/meta.json')).json();
   $('asOf').textContent = S.meta.as_of;
   $('builtAt').textContent = S.meta.generated_at.replace('T', ' ').replace('Z', ' UTC');
@@ -55,7 +70,7 @@ async function boot() {
       render();
     };
   });
-  window.addEventListener('resize', () => { if (S.sel) drawDetail(); });
+  window.addEventListener('resize', () => { syncTopbarHeight(); if (S.sel) drawDetail(); });
 }
 
 function buildCatNav() {
@@ -96,6 +111,7 @@ function currentWindowLabel() {
 function rankOf(s) { const r = s.k[S.win]; return r === null || r === undefined ? null : r; }
 
 function render() {
+  syncTopbarHeight();   // cheap re-measure: also self-corrects if a resize event was missed
   if (!S.cat) return;
   $('catTitle').textContent = S.cat.name;
   const planTotal = S.cat.schemes.filter((s) => s.p === S.plan).length;

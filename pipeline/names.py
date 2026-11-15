@@ -34,8 +34,19 @@ DIST = (
     "idcw",
     "bonus option",
     "bonus",
+    "capital withdrawal option",
+    "withdrawal option",
 )
-PLAN = ("direct plan", "direct", "regular plan", "regular")
+# "Direct Option" / "Regular Option" / legacy "Direct Sub Plan" are the same marker.
+# Deliberately NOT here: "Investment Plan", "Institutional Plan", "Retail Plan",
+# "Conservative Plan" - those name a sub-scheme and must survive.
+PLAN = (
+    "direct sub plan", "regular sub plan",
+    "direct option", "regular option",
+    "direct plan", "regular plan",
+    "directplan", "regularplan",
+    "direct", "regular",
+)
 
 TAG = {"Direct": "D-G", "Regular": "R-G"}
 

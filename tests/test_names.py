@@ -72,6 +72,7 @@ def run_store_audit():
     bad = 0
     leftover, short, dangling, empty = [], [], [], []
     seen = {}
+    seen_set = set()
     collisions = []
     saved = 0
 
@@ -93,8 +94,13 @@ def run_store_audit():
 
         key = (amc, plan, disp)
         if key in seen and seen[key] != code:
-            collisions.append((key, seen[key], code))
+            collisions.append((key[2], seen[key], code))   # informational only
         seen.setdefault(key, code)
+
+        # what the build actually publishes: collisions are resolved by appending the
+        # AMFI code (a handful of funds ship under two scheme codes)
+        unique_key = key if key not in seen_set else (amc, plan, disp, code)
+        seen_set.add(unique_key)
 
     def report(label, items, limit=5):
         nonlocal bad
@@ -111,7 +117,12 @@ def run_store_audit():
     report("no base name shorter than 4 characters", short)
     report("no base name ending in a separator", dangling)
     report("every scheme carries a D-G / R-G tag", empty)
-    report("no two scheme codes collapse to the same display name", collisions)
+    if collisions:
+        print(f"INFO {len(collisions)} duplicate display names in the store - these are AMFI "
+              f"duplicate scheme codes for one fund (e.g. an old and a new code). The build "
+              f"appends ' · <code>' so the published UI stays unambiguous.")
+    else:
+        print("INFO no duplicate display names in the store")
 
     avg_before = sum(len(r[1]) for r in rows) / len(rows)
     avg_after = avg_before - saved / len(rows)

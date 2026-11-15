@@ -133,3 +133,14 @@ for all 42 category files, 0 rank differences and 0 return differences.
   overlap), CSV export and a shareable URL that restores the exact view.
 
 Tests: `python3 tests/test_parser.py` and `python3 tests/test_sip.py`.
+
+## Short display names
+
+AMFI's official scheme names carry the plan and option in the tail
+("Fund - Direct Plan - Growth Option"). The table shows a contracted form
+("Fund D-G" / "Fund R-G") derived by `pipeline/names.py`; the **official name is
+never modified** - it stays in `n` and appears in the tooltip, and search matches
+both. Markers are stripped only from the tail, at most once for growth, so funds
+whose own name contains the word (Principal Multi Cap **Growth** Fund, Kotak India
+**Growth** Fund Series 4) keep it. Verified by `tests/test_names.py`, which audits
+every scheme in the store and asserts zero leftover markers and zero collisions.

@@ -21,6 +21,7 @@ import shutil
 
 from . import categories
 from . import sip as sipmod
+from . import names as namemod
 
 WINDOWS = [
     ("1W", 7, "1 Week"),
@@ -285,6 +286,22 @@ def build(store, dist_dir: str) -> dict:
             continue
         by_cat.setdefault(meta["category"], []).append(code)
 
+    # ---- short display names ------------------------------------------------
+    # "Fund - Direct Plan - Growth Option" -> "Fund D-G". The official name is kept
+    # in "n"; this is a derived field. AMFI ships a handful of duplicate codes for the
+    # same fund, which collapse to one display name, so those get the code appended.
+    published_codes = [c for codes in by_cat.values() for c in codes]
+    disp = {c: namemod.display_name(schemes[c]["name"], schemes[c]["plan"]) for c in published_codes}
+    _by_disp = {}
+    for c in published_codes:
+        _by_disp.setdefault((schemes[c]["amc"], schemes[c]["plan"], disp[c]), []).append(c)
+    dup_display = 0
+    for key, codes in _by_disp.items():
+        if len(codes) > 1:
+            dup_display += len(codes)
+            for c in codes:
+                disp[c] = f"{disp[c]} · {c}"
+
     def enc_rank(v):
         return 0 if v is None else v          # 0 is never a valid rank -> cheap null
 
@@ -335,7 +352,8 @@ def build(store, dist_dir: str) -> dict:
             rows.append(
                 {
                     "c": code,
-                    "n": meta["name"],
+                    "n": meta["name"],          # official AMFI name
+                    "dn": disp[code],          # short display name ("... D-G")
                     "a": meta["amc"],
                     "p": meta["plan"],
                     "g": meta["rgroup"] or "",
@@ -389,13 +407,14 @@ def build(store, dist_dir: str) -> dict:
         json.dump(meta_payload, fh, separators=(",", ":"))
 
     published = {code for codes in by_cat.values() for code in codes}
-    lookup = [[c, m["name"], categories.slug(m["category"]), m["plan"], m["amc"]]
+    lookup = [[c, m["name"], categories.slug(m["category"]), m["plan"], m["amc"], disp.get(c, m["name"])]
               for c, m in schemes.items() if c in published]
     with open(os.path.join(data_dir, "lookup.json"), "w") as fh:
         json.dump(lookup, fh, separators=(",", ":"))
 
     return {
         "schemes": len(lookup),
+        "duplicate_display_names": dup_display,
         "dates": len(dates),
         "categories": len(cat_index),
         "as_of": dates[-1],

@@ -218,7 +218,10 @@ function render() {
     + (asOf ? ` · ranks as of ${asOf} (${basisLabel().toLowerCase()})` : '');
 
   let rows = S.cat.schemes.filter((s) => s.p === S.plan);
-  if (S.search) rows = rows.filter((s) => s.n.toLowerCase().includes(S.search));
+  if (S.search) {
+    rows = rows.filter((s) => (s.dn || '').toLowerCase().includes(S.search)
+      || s.n.toLowerCase().includes(S.search));
+  }
   // Keep funds that have no return for the selected window when the user is searching
   // for them by name - otherwise a brand-new fund is unreachable ("No schemes match")
   // even though it has a NAV chart and a SIP grid.
@@ -251,7 +254,7 @@ function render() {
       <td class="selcol"><input type="checkbox" data-code="${s.c}"${checked}
         aria-label="Select for comparison" title="Select for comparison"></td>
       <td class="num muted">${i + 1}</td>
-      <td class="name"><b>${s.n}</b>${s.g ? `<span class="tag">${s.g}</span>` : ''}</td>
+      <td class="name" title="${s.n.replace(/"/g, '&quot;')}"><b>${s.dn || s.n}</b>${s.g ? `<span class="tag">${s.g}</span>` : ''}</td>
       <td class="muted">${s.a || '—'}</td>
       <td class="num ${cls(s.r[S.win])}">${fmtPct(s.r[S.win])}</td>
       <td class="num" title="${rk !== null && totalOf(s)
@@ -307,7 +310,8 @@ function closeModal(doRender = true) {
 }
 
 function openDetailMeta(s) {
-  $('dName').textContent = s.n;
+  $('dName').textContent = s.dn || s.n;
+  $('dName').title = s.n;
   const asOf = basisAsOf();
   $('dMeta').innerHTML = `${s.a || '—'}${s.g ? ' · ' + s.g : ''} · ${S.plan} plan · ${S.cat.name}`
     + (asOf ? ` · ranks as of ${asOf} (${basisLabel().toLowerCase()})` : '');

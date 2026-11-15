@@ -160,7 +160,7 @@ function drawCompareChart(rows, startIdx, endIdx) {
   rows.forEach((r, i) => {
     const g = growth(r, startIdx, endIdx);
     if (!g) return;
-    lines.push({ name: r.n, color: PALETTE[i % PALETTE.length], pts: g.pts, code: r.c, coverage: g.coverage });
+    lines.push({ name: r.dn || r.n, color: PALETTE[i % PALETTE.length], pts: g.pts, code: r.c, coverage: g.coverage });
   });
   drawMulti(canvas, lines.filter((l) => !CMP_HIDDEN.has(l.code)));
 
@@ -170,6 +170,7 @@ function drawCompareChart(rows, startIdx, endIdx) {
     const b = document.createElement('button');
     b.className = 'chip' + (CMP_HIDDEN.has(l.code) ? ' off' : '');
     b.innerHTML = `<i style="background:${l.color}"></i>${l.name}`;
+    b.title = l.name;
     b.onclick = () => {
       if (CMP_HIDDEN.has(l.code)) CMP_HIDDEN.delete(l.code); else CMP_HIDDEN.add(l.code);
       drawCompareChart(CMP_ROWS, startIdx, endIdx);
@@ -241,7 +242,8 @@ function buildSummary(rows) {
   h += '<th class="num">SIP 5Y</th></tr></thead><tbody>';
   rows.forEach((r) => {
     const sip = r._series && r._series.sip ? r._series.sip.x[2][1] : null;
-    h += `<tr><td class="tl">${r.n}<div class="muted tiny">${r.a || ''} · ${r.p}</div></td>`;
+    h += `<tr><td class="tl" title="${r.n.replace(/"/g, '&quot;')}">${r.dn || r.n}`
+       + `<div class="muted tiny">${r.a || ''} · ${r.p}</div></td>`;
     h += `<td class="muted">${catSlug(r.c)}</td>`;
     W.forEach((w) => {
       const v = r.r[w.key];
@@ -264,7 +266,7 @@ function buildCalendar(rows) {
   h += '</tr></thead><tbody>';
   rows.forEach((r) => {
     const cy = (r._series && r._series.cy) || {};
-    h += `<tr><td class="tl">${r.n.slice(0, 26)}</td>`;
+    h += `<tr><td class="tl" title="${r.n.replace(/"/g, '&quot;')}">${r.dn || r.n}</td>`;
     years.forEach((y) => {
       const v = cy[y];
       h += `<td class="num ${cls(v)}">${v === undefined ? '—' : v.toFixed(1)}</td>`;
@@ -301,10 +303,11 @@ function buildCorrelation(rows, startIdx, endIdx) {
     return dx && dy ? num / Math.sqrt(dx * dy) : null;
   };
   let h = '<thead><tr><th class="tl"></th>';
-  rows.forEach((r) => { h += `<th class="num" title="${r.n}">${r.n.slice(0, 2)}</th>`; });
+  rows.forEach((r) => { h += `<th class="num" title="${r.n.replace(/"/g, '&quot;')}">`
+    + `${(r.dn || r.n).slice(0, 3)}</th>`; });
   h += '</tr></thead><tbody>';
   rows.forEach((r, i) => {
-    h += `<tr><td class="tl">${r.n.slice(0, 22)}</td>`;
+    h += `<tr><td class="tl" title="${r.n.replace(/"/g, '&quot;')}">${r.dn || r.n}</td>`;
     rows.forEach((_, j) => {
       const c = i === j ? 1 : corr(i, j);
       if (c === null) { h += '<td class="num muted">—</td>'; return; }

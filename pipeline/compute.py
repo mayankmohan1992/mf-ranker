@@ -34,6 +34,7 @@ WIN_DAYS = {k: d for k, d, _ in WINDOWS}
 NAV_SERIES_WEEKS = 522   # ~10 years of weekly NAV points for the NAV chart
 RANK_SERIES_WEEKS = 156  # ~3 years of weekly rank points for the rank chart
 SAMPLE_TOLERANCE = 12    # days a weekly sample may drift from the exact Friday
+MAX_STALE = 30           # a NAV older than this is treated as "scheme stopped reporting"
 
 
 def _weekly_grid(end_day: int, weeks: int):
@@ -48,19 +49,26 @@ def _weekly_grid(end_day: int, weeks: int):
     return [(d - dt.date(1970, 1, 1)).days for d in days]
 
 
-def _sample(points, grid, tol=SAMPLE_TOLERANCE):
-    """points: sorted [(day, nav)] -> nav per grid slot (as-of, forward-filled <= tol days)."""
+def _sample(points, grid, max_stale=MAX_STALE):
+    """points: sorted [(day, nav)] -> NAV per grid slot, "as of" that date.
+
+    A scheme that stopped publishing (merged, closed, renamed to a new code) must
+    NOT be forward-filled forever: a flat-lined dead fund would keep taking part
+    in rankings and inflate every peer's group size. Beyond `max_stale` days the
+    sample becomes None and the scheme simply drops out.
+    """
     out = [None] * len(grid)
     j = 0
-    last = None
+    last_nav = None
+    last_day = None
     for i, g in enumerate(grid):
         while j < len(points) and points[j][0] <= g:
-            last = points[j][1]
+            last_day, last_nav = points[j]
             j += 1
-        # walk forward is unnecessary: as-of semantics == last known NAV on/before the date
-        out[i] = last
-    # guard: a scheme listed after the grid starts must not inherit a later NAV
-    # (as-of already handles this since last is None until the first point)
+        if last_nav is not None and last_day is not None and g - last_day <= max_stale:
+            out[i] = last_nav
+        else:
+            out[i] = None
     return out
 
 

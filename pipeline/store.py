@@ -18,6 +18,7 @@ import sqlite3
 from . import amfi, categories
 
 EPOCH = dt.date(1970, 1, 1)
+STALE_MARGIN = 40   # days of slack so boundary schemes are not dropped by pack()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS nav (
@@ -188,14 +189,92 @@ class Store:
         self.db.close()
 
     # -- state transfer ----------------------------------------------------
-    def pack(self, out_path: str) -> str:
-        """Checkpoint WAL, then gzip the DB to out_path."""
+    def pack(self, out_path: str, keep_daily_days: int = 45, keep_years: float = 3.0) -> str:
+        """Write a compact, single-file snapshot of the store for the `state` branch.
+
+        The snapshot must be *lossless for the product*, not merely small. The
+        product samples every series on a Friday grid with "as of" semantics
+        (last NAV on or before the date), so for older history we keep exactly
+        the row that sampler would pick for each Friday - including the Thursday
+        before a market-holiday Friday. Any coarser rule (all Fridays, last row
+        per week bin, ...) silently shifts every historical return.
+
+        Rows newer than `keep_daily_days` are kept in full, and schemes with no
+        NAV in the last `keep_years` are dropped: they are already excluded from
+        publication and rank history only spans that window.
+
+        1970-01-01 (day 0) was a Thursday, so day % 7 == 1 is a Friday.
+        """
         self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         self.db.commit()
+
+        end = self.db.execute("SELECT max(day) FROM nav").fetchone()[0]
+        if end is None:
+            raise RuntimeError("cannot pack an empty store")
+        daily_cut = end - keep_daily_days
+        # rank history spans compute.RANK_SERIES_WEEKS weeks and a sample may be
+        # up to MAX_STALE days old, so keep schemes that contributed anywhere in it
+        alive_cut = end - int(365.25 * keep_years) - STALE_MARGIN
+        # every Friday, including ones inside the daily window: the row a Friday
+        # resolves to may itself sit just below the daily cut-off
+        fridays = [d for d in range(0, end + 1) if d % 7 == 1]
+
+        work = out_path + ".db"
+        if os.path.exists(work):
+            os.remove(work)
+        out = sqlite3.connect(work)
+        out.executescript(SCHEMA)
+        keep_schemes = [
+            r for r in self.db.execute(
+                "SELECT code,name,amc,section,category,asset,plan,rgroup,first_day,last_day "
+                "FROM schemes WHERE coalesce(last_day,0) >= ?", (alive_cut,))
+        ]
+        alive = {r[0] for r in keep_schemes}
+        out.executemany(
+            "INSERT INTO schemes VALUES (?,?,?,?,?,?,?,?,?,?)", keep_schemes)
+
+        batch = []
+        code = None
+        rows = []
+        def flush(code, rows):
+            if not alive.__contains__(code) or not rows:
+                return
+            days = [r[0] for r in rows]
+            keep_idx = set()
+            pos = 0
+            for f in fridays:
+                while pos < len(days) and days[pos] <= f:
+                    pos += 1
+                if pos:
+                    keep_idx.add(pos - 1)          # last row on/before this Friday
+            for i, (d, n) in enumerate(rows):
+                if d >= daily_cut or i in keep_idx:
+                    batch.append((code, d, n))
+
+        for c, d, n in self.db.execute("SELECT code, day, nav FROM nav ORDER BY code, day"):
+            if c != code:
+                if code is not None:
+                    flush(code, rows)
+                code, rows = c, []
+            rows.append((d, n))
+            if len(batch) > 200000:
+                out.executemany("INSERT INTO nav VALUES (?,?,?)", batch)
+                batch.clear()
+        flush(code, rows)
+        if batch:
+            out.executemany("INSERT INTO nav VALUES (?,?,?)", batch)
+        out.executemany("INSERT INTO meta VALUES (?,?)",
+                        self.db.execute("SELECT key,value FROM meta").fetchall())
+        out.commit()
+        out.execute("VACUUM")
+        out.commit()
+        out.close()
+
         tmp = out_path + ".tmp"
-        with open(self.path, "rb") as src, gzip.open(tmp, "wb", compresslevel=6) as dst:
+        with open(work, "rb") as src, gzip.open(tmp, "wb", compresslevel=6) as dst:
             shutil.copyfileobj(src, dst)
         os.replace(tmp, out_path)
+        os.remove(work)
         return out_path
 
 
